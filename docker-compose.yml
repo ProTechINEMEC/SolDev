@@ -1,0 +1,125 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  database:
+    image: postgres:15-alpine
+    container_name: soldev_database
+    environment:
+      POSTGRES_DB: soldev_db
+      POSTGRES_USER: soldev_user
+      POSTGRES_PASSWORD: soldev_secure_2024
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "11002:5432"
+    volumes:
+      - ./database/data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    networks:
+      - soldev_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U soldev_user -d soldev_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: soldev_redis
+    ports:
+      - "11003:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - soldev_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend (Node.js + Express)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: soldev_backend
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      PORT: 11001
+
+      # Database
+      DATABASE_URL: postgresql://soldev_user:soldev_secure_2024@database:5432/soldev_db
+
+      # Redis
+      REDIS_URL: redis://redis:6379
+
+      # JWT
+      JWT_SECRET: ${JWT_SECRET:-soldev_jwt_secret_change_in_production}
+      JWT_EXPIRES_IN: 24h
+
+      # Email (configure in .env)
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      EMAIL_FROM: ${EMAIL_FROM:-noreply@inemec.com}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Portal INEMEC}
+
+      # Frontend URL (for CORS and email links)
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:11000}
+
+    ports:
+      - "11001:11001"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - ./uploads:/app/uploads
+    networks:
+      - soldev_network
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend (Vite + React)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: soldev_frontend
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:11001}
+      VITE_APP_NAME: "Portal de Gestión INEMEC"
+    ports:
+      - "11000:11000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - soldev_network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  soldev_network:
+    driver: bridge
+    name: soldev_network
+
+volumes:
+  redis_data:
+    driver: local
+    name: soldev_redis_data
