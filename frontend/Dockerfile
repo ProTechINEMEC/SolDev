@@ -1,18 +1,36 @@
-FROM node:18-alpine
+# Etapa de construccion
+FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
+# Build argument for API URL (Vite requires env vars at build time)
+ARG VITE_API_URL=http://localhost:11001
+ENV VITE_API_URL=$VITE_API_URL
+
+# Copiar archivos de configuracion
 COPY package*.json ./
+COPY vite.config.js ./
 
-# Install dependencies
-RUN npm install
+# Instalar dependencias
+RUN npm ci
 
-# Copy source code
+# Copiar codigo fuente
 COPY . .
 
-# Expose port
-EXPOSE 11000
+# Construir la aplicacion
+RUN npm run build
 
-# Start development server
-CMD ["npm", "run", "dev"]
+# Etapa de produccion
+FROM nginx:alpine
+
+# Copiar configuracion personalizada de nginx
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copiar archivos construidos desde la etapa de construccion
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Exponer puerto
+EXPOSE 80
+
+# Comando por defecto
+CMD ["nginx", "-g", "daemon off;"]

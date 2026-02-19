@@ -7,6 +7,7 @@ node_modules/
 .env
 .env.local
 .env.*.local
+.env.tunnel
 
 # Build outputs
 dist/
@@ -45,3 +46,9 @@ coverage/
 # Temp
 tmp/
 temp/
+
+# Backup system
+backup/rclone_config/rclone.conf
+backup/logs/
+backup/temp/
+backups/

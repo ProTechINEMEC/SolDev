@@ -1,7 +1,7 @@
 import axios from 'axios'
 
-// Use the server's IP address for API calls
-const API_URL = 'http://192.168.0.200:11001'
+// API URL from environment variable or default
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:11001'
 
 const api = axios.create({
   baseURL: `${API_URL}/api`,
