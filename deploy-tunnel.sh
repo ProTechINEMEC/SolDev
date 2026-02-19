@@ -70,7 +70,7 @@ check_tunnel_config() {
     fi
 
     # Verificar que el token no este vacio
-    source .env.tunnel
+    TUNNEL_TOKEN=$(grep "^TUNNEL_TOKEN=" .env.tunnel | cut -d'=' -f2-)
     if [[ -z "$TUNNEL_TOKEN" || "$TUNNEL_TOKEN" == "tu_token_aqui_sera_muy_largo" ]]; then
         error "TUNNEL_TOKEN esta vacio o sin configurar"
         echo ""
@@ -208,7 +208,7 @@ case $ACTION in
     if [[ ! -f ".env.tunnel" ]] || ! grep -q "TUNNEL_TOKEN=" .env.tunnel; then
         show_tunnel_instructions
     else
-        source .env.tunnel
+        TUNNEL_TOKEN=$(grep "^TUNNEL_TOKEN=" .env.tunnel | cut -d'=' -f2-)
         if [[ -z "$TUNNEL_TOKEN" || "$TUNNEL_TOKEN" == "tu_token_aqui_sera_muy_largo" ]]; then
             show_tunnel_instructions
         else
