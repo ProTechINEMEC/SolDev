@@ -1,18 +1,19 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import {
   Card, Typography, Button, Space, Steps, Form, Input, Select, Radio,
   message, Spin, Alert, Divider, Row, Col, InputNumber,
-  Table, Tag, Modal, List, Tooltip
+  Table, Tag, Modal, List, Tooltip, Transfer, Checkbox
 } from 'antd'
 import {
   ArrowLeftOutlined, SaveOutlined, SendOutlined, PlusOutlined,
   DeleteOutlined, CalendarOutlined, DollarOutlined, TeamOutlined,
-  FileTextOutlined, CheckCircleOutlined
+  FileTextOutlined, CheckCircleOutlined, CrownOutlined
 } from '@ant-design/icons'
 import {
   solicitudesApi, evaluacionesApi, cronogramasApi, estimacionesApi, usuariosApi
 } from '../../services/api'
+import WorkloadChart from '../../components/WorkloadChart'
 
 const { Title, Text, Paragraph } = Typography
 const { TextArea } = Input
@@ -49,7 +50,11 @@ function EvaluacionForm() {
 
   // Form states
   const [resumenForm] = Form.useForm()
-  const [cronogramaData, setCronogramaData] = useState({ tareas: [], liderId: null })
+  const [cronogramaData, setCronogramaData] = useState({
+    tareas: [],
+    liderId: null,
+    equipoIds: []  // Selected team member IDs
+  })
   const [estimacionData, setEstimacionData] = useState({
     desarrollo_interno: [],
     infraestructura: [],
@@ -94,9 +99,11 @@ function EvaluacionForm() {
         if (evalRes.data.cronograma) {
           // Find the project leader from equipo
           const lider = evalRes.data.equipo?.find(m => m.es_lider)
+          const cronograma = evalRes.data.cronograma
           setCronogramaData({
-            id: evalRes.data.cronograma.id,
-            nombre: evalRes.data.cronograma.nombre,
+            id: cronograma.id,
+            nombre: cronograma.nombre,
+            equipoIds: cronograma.equipo_ids || [],
             tareas: (evalRes.data.tareas || []).map(t => ({
               id: t.id,
               nombre: t.titulo || t.nombre,
@@ -105,7 +112,8 @@ function EvaluacionForm() {
               progreso: t.progreso || 0,
               dependencias: t.dependencias || [],
               orden: t.orden,
-              asignado_id: t.asignado_id
+              asignado_id: t.asignado_id,
+              asignados_ids: t.asignados_ids || []
             })),
             liderId: lider?.usuario_id || null
           })
@@ -194,12 +202,13 @@ function EvaluacionForm() {
         nombre: template.nombre,
         tareas: template.tareas.map(t => ({
           ...t,
-          id: t.id || `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+          id: t.id || `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          asignados_ids: []  // Initialize empty assignees
         }))
       }))
 
       setTemplateModalVisible(false)
-      message.success('Plantilla aplicada')
+      message.success('Plantilla aplicada. Ahora asigne las tareas al equipo.')
     } catch (error) {
       message.error('Error al cargar plantilla')
     }
@@ -208,6 +217,11 @@ function EvaluacionForm() {
   const handleSaveCronograma = async () => {
     if (!evaluacion) {
       message.error('Primero debe guardar el resumen')
+      return
+    }
+
+    if (cronogramaData.equipoIds.length === 0) {
+      message.error('Debe seleccionar al menos un miembro del equipo')
       return
     }
 
@@ -221,6 +235,11 @@ function EvaluacionForm() {
       return
     }
 
+    if (!cronogramaData.equipoIds.includes(cronogramaData.liderId)) {
+      message.error('El líder debe ser parte del equipo seleccionado')
+      return
+    }
+
     // Validate that all tasks have names
     const emptyNameTask = cronogramaData.tareas.find(t => !t.nombre || t.nombre.trim() === '')
     if (emptyNameTask) {
@@ -228,11 +247,24 @@ function EvaluacionForm() {
       return
     }
 
+    // Validate that assigned users are in the team
+    for (const tarea of cronogramaData.tareas) {
+      if (tarea.asignados_ids && tarea.asignados_ids.length > 0) {
+        for (const userId of tarea.asignados_ids) {
+          if (!cronogramaData.equipoIds.includes(userId)) {
+            message.error(`Tarea "${tarea.nombre}" tiene asignado un usuario que no está en el equipo`)
+            return
+          }
+        }
+      }
+    }
+
     setSaving(true)
     try {
       const data = {
         evaluacion_id: evaluacion.id,
         nombre: cronogramaData.nombre || 'Cronograma del Proyecto',
+        equipo_ids: cronogramaData.equipoIds,
         tareas: cronogramaData.tareas.map((t, i) => ({
           nombre: t.nombre.trim(),
           duracion_dias: t.duracion_dias || 1,
@@ -240,7 +272,8 @@ function EvaluacionForm() {
           progreso: t.progreso || 0,
           dependencias: t.dependencias || [],
           orden: i,
-          asignado_id: t.asignado_id || null
+          asignado_id: t.asignado_id || null,
+          asignados_ids: t.asignados_ids || []
         }))
       }
 
@@ -463,21 +496,40 @@ function EvaluacionForm() {
         {/* Step 1: Cronograma */}
         {currentStep === 1 && (
           <div>
-            {/* Project Leader Selection */}
-            <Card size="small" style={{ marginBottom: 16 }}>
-              <Row gutter={16} align="middle">
-                <Col xs={24} md={8}>
-                  <Text strong><TeamOutlined /> Líder del Proyecto *</Text>
-                </Col>
+            {/* Step 1a: Team Selection */}
+            <Card
+              size="small"
+              title={<><TeamOutlined /> Paso 1: Equipo del Proyecto</>}
+              style={{ marginBottom: 16 }}
+            >
+              <Row gutter={[16, 16]}>
                 <Col xs={24} md={16}>
+                  <Text strong>Miembros del Equipo *</Text>
                   <Select
-                    value={cronogramaData.liderId}
-                    onChange={(value) => setCronogramaData(prev => ({ ...prev, liderId: value }))}
-                    placeholder="Seleccione el líder del proyecto"
-                    style={{ width: '100%' }}
+                    mode="multiple"
+                    value={cronogramaData.equipoIds}
+                    onChange={(values) => {
+                      setCronogramaData(prev => {
+                        // If leader was removed from team, clear leader
+                        const newLiderId = values.includes(prev.liderId) ? prev.liderId : null
+                        // Update task assignments - remove users no longer in team
+                        const newTareas = prev.tareas.map(t => ({
+                          ...t,
+                          asignados_ids: (t.asignados_ids || []).filter(id => values.includes(id))
+                        }))
+                        return {
+                          ...prev,
+                          equipoIds: values,
+                          liderId: newLiderId,
+                          tareas: newTareas
+                        }
+                      })
+                    }}
+                    placeholder="Seleccione los miembros del equipo"
+                    style={{ width: '100%', marginTop: 8 }}
                     disabled={evaluacion?.estado === 'enviado'}
-                    showSearch
                     optionFilterProp="children"
+                    showSearch
                   >
                     {ntUsers.map(user => (
                       <Select.Option key={user.id} value={user.id}>
@@ -486,44 +538,81 @@ function EvaluacionForm() {
                     ))}
                   </Select>
                 </Col>
+                <Col xs={24} md={8}>
+                  <Text strong><CrownOutlined /> Líder del Proyecto *</Text>
+                  <Select
+                    value={cronogramaData.liderId}
+                    onChange={(value) => setCronogramaData(prev => ({ ...prev, liderId: value }))}
+                    placeholder="Seleccione el líder"
+                    style={{ width: '100%', marginTop: 8 }}
+                    disabled={evaluacion?.estado === 'enviado' || cronogramaData.equipoIds.length === 0}
+                    notFoundContent={cronogramaData.equipoIds.length === 0 ? "Primero seleccione el equipo" : "Sin opciones"}
+                  >
+                    {ntUsers.filter(u => cronogramaData.equipoIds.includes(u.id)).map(user => (
+                      <Select.Option key={user.id} value={user.id}>
+                        {user.nombre.split(' ')[0]}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </Col>
               </Row>
+              {cronogramaData.equipoIds.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <Text type="secondary">
+                    Equipo seleccionado: {cronogramaData.equipoIds.length} miembro(s)
+                    {cronogramaData.liderId && ` - Líder: ${ntUsers.find(u => u.id === cronogramaData.liderId)?.nombre.split(' ')[0]}`}
+                  </Text>
+                </div>
+              )}
             </Card>
 
-            <Space style={{ marginBottom: 16 }}>
-              <Button icon={<CalendarOutlined />} onClick={() => setTemplateModalVisible(true)}>
-                Usar Plantilla
-              </Button>
-              <Button icon={<PlusOutlined />} onClick={() => {
-                setCronogramaData(prev => ({
-                  ...prev,
-                  tareas: [...prev.tareas, {
-                    id: `task-${Date.now()}`,
-                    nombre: 'Nueva Tarea',
-                    duracion_dias: 5,
-                    fase: 'desarrollo',
-                    progreso: 0,
-                    dependencias: [],
-                    asignado_id: null
-                  }]
-                }))
-              }}>
-                Agregar Tarea
-              </Button>
-            </Space>
-
-            {cronogramaData.tareas.length > 0 ? (
-              <>
+            {/* Step 1b: Tasks */}
+            <Card
+              size="small"
+              title={<><CalendarOutlined /> Paso 2: Tareas del Proyecto</>}
+              style={{ marginBottom: 16 }}
+              extra={
+                <Space>
+                  <Button size="small" icon={<CalendarOutlined />} onClick={() => setTemplateModalVisible(true)}>
+                    Usar Plantilla
+                  </Button>
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    onClick={() => {
+                      setCronogramaData(prev => ({
+                        ...prev,
+                        tareas: [...prev.tareas, {
+                          id: `task-${Date.now()}`,
+                          nombre: 'Nueva Tarea',
+                          duracion_dias: 5,
+                          fase: 'desarrollo',
+                          progreso: 0,
+                          dependencias: [],
+                          asignado_id: null,
+                          asignados_ids: []
+                        }]
+                      }))
+                    }}
+                  >
+                    Agregar Tarea
+                  </Button>
+                </Space>
+              }
+            >
+              {cronogramaData.tareas.length > 0 ? (
                 <Table
                   dataSource={cronogramaData.tareas}
                   rowKey="id"
                   pagination={false}
                   size="small"
-                  scroll={{ x: 800 }}
+                  scroll={{ x: 900 }}
                   columns={[
                     {
                       title: 'Tarea',
                       dataIndex: 'nombre',
-                      width: 220,
+                      width: 200,
                       render: (text, record, index) => (
                         <Input
                           value={text}
@@ -539,7 +628,7 @@ function EvaluacionForm() {
                     {
                       title: 'Fase',
                       dataIndex: 'fase',
-                      width: 140,
+                      width: 130,
                       render: (fase, record, index) => (
                         <Select
                           value={fase}
@@ -553,16 +642,16 @@ function EvaluacionForm() {
                         >
                           {Object.entries(phaseLabels).map(([key, label]) => (
                             <Select.Option key={key} value={key}>
-                              <Tag color={phaseColors[key]}>{label}</Tag>
+                              <Tag color={phaseColors[key]} style={{ margin: 0 }}>{label}</Tag>
                             </Select.Option>
                           ))}
                         </Select>
                       )
                     },
                     {
-                      title: 'Duración (días)',
+                      title: 'Días',
                       dataIndex: 'duracion_dias',
-                      width: 120,
+                      width: 80,
                       render: (duracion, record, index) => (
                         <InputNumber
                           value={duracion}
@@ -579,25 +668,26 @@ function EvaluacionForm() {
                       )
                     },
                     {
-                      title: 'Asignado a',
-                      dataIndex: 'asignado_id',
-                      width: 160,
-                      render: (asignado_id, record, index) => (
+                      title: 'Asignados',
+                      dataIndex: 'asignados_ids',
+                      width: 200,
+                      render: (asignados_ids, record, index) => (
                         <Select
-                          value={asignado_id}
+                          mode="multiple"
+                          value={asignados_ids || []}
                           style={{ width: '100%' }}
                           placeholder="Sin asignar"
-                          allowClear
-                          onChange={(value) => {
+                          onChange={(values) => {
                             const newTareas = [...cronogramaData.tareas]
-                            newTareas[index].asignado_id = value || null
+                            newTareas[index].asignados_ids = values
                             setCronogramaData(prev => ({ ...prev, tareas: newTareas }))
                           }}
-                          disabled={evaluacion?.estado === 'enviado'}
-                          showSearch
-                          optionFilterProp="children"
+                          disabled={evaluacion?.estado === 'enviado' || cronogramaData.equipoIds.length === 0}
+                          maxTagCount={2}
+                          maxTagPlaceholder={(omitted) => `+${omitted.length}`}
+                          notFoundContent={cronogramaData.equipoIds.length === 0 ? "Primero seleccione el equipo" : "Sin opciones"}
                         >
-                          {ntUsers.map(user => (
+                          {ntUsers.filter(u => cronogramaData.equipoIds.includes(u.id)).map(user => (
                             <Select.Option key={user.id} value={user.id}>
                               {user.nombre.split(' ')[0]}
                             </Select.Option>
@@ -624,24 +714,33 @@ function EvaluacionForm() {
                     }
                   ]}
                 />
+              ) : (
+                <Alert
+                  message="Sin Tareas"
+                  description="Use una plantilla o agregue tareas manualmente para crear el cronograma del proyecto."
+                  type="info"
+                  showIcon
+                />
+              )}
+            </Card>
 
-                <div style={{ marginTop: 16 }}>
-                  <Space>
-                    <Button onClick={() => setCurrentStep(0)}>Anterior</Button>
-                    <Button type="primary" onClick={handleSaveCronograma} loading={saving} icon={<SaveOutlined />}>
-                      Guardar y Continuar
-                    </Button>
-                  </Space>
-                </div>
-              </>
-            ) : (
-              <Alert
-                message="Sin Cronograma"
-                description="Use una plantilla o agregue tareas manualmente para crear el cronograma del proyecto."
-                type="info"
-                showIcon
+            {/* Step 1c: Workload Visualization */}
+            {cronogramaData.equipoIds.length > 0 && cronogramaData.tareas.length > 0 && (
+              <WorkloadChart
+                equipo={ntUsers.filter(u => cronogramaData.equipoIds.includes(u.id))}
+                tareas={cronogramaData.tareas}
+                liderId={cronogramaData.liderId}
               />
             )}
+
+            <div style={{ marginTop: 16 }}>
+              <Space>
+                <Button onClick={() => setCurrentStep(0)}>Anterior</Button>
+                <Button type="primary" onClick={handleSaveCronograma} loading={saving} icon={<SaveOutlined />}>
+                  Guardar y Continuar
+                </Button>
+              </Space>
+            </div>
           </div>
         )}
 
@@ -1051,11 +1150,34 @@ function EvaluacionForm() {
               </Col>
             </Row>
 
-            <Card title="Cronograma" size="small" style={{ marginTop: 16 }}>
-              <Text>{cronogramaData.tareas.length} tareas programadas</Text>
-              <Text type="secondary" style={{ marginLeft: 16 }}>
-                Duración total estimada: {cronogramaData.tareas.reduce((sum, t) => sum + (t.duracion_dias || 0), 0)} días hábiles
-              </Text>
+            <Card title="Cronograma y Equipo" size="small" style={{ marginTop: 16 }}>
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Text strong>Equipo: </Text>
+                  <Text>{cronogramaData.equipoIds.length} miembro(s)</Text>
+                  {cronogramaData.liderId && (
+                    <Tag color="blue" style={{ marginLeft: 8 }}>
+                      <CrownOutlined /> Líder: {ntUsers.find(u => u.id === cronogramaData.liderId)?.nombre.split(' ')[0]}
+                    </Tag>
+                  )}
+                </Col>
+                <Col span={12}>
+                  <Text strong>Tareas: </Text>
+                  <Text>{cronogramaData.tareas.length} programadas</Text>
+                  <Text type="secondary" style={{ marginLeft: 8 }}>
+                    ({cronogramaData.tareas.reduce((sum, t) => sum + (t.duracion_dias || 0), 0)} días totales)
+                  </Text>
+                </Col>
+              </Row>
+              {cronogramaData.equipoIds.length > 0 && cronogramaData.tareas.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <WorkloadChart
+                    equipo={ntUsers.filter(u => cronogramaData.equipoIds.includes(u.id))}
+                    tareas={cronogramaData.tareas}
+                    liderId={cronogramaData.liderId}
+                  />
+                </div>
+              )}
             </Card>
 
             <div style={{ marginTop: 24 }}>

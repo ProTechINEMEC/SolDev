@@ -95,6 +95,9 @@ const GANTT_TEMPLATES = {
   }
 };
 
+// Phase order for validation
+const PHASE_ORDER = ['analisis', 'diseno', 'desarrollo', 'pruebas', 'documentacion', 'entrega'];
+
 // Validation schemas - Duration-based (dates calculated when scheduling)
 const tareaSchema = Joi.object({
   id: Joi.string().optional(),
@@ -116,7 +119,8 @@ const tareaSchema = Joi.object({
   orden: Joi.number().integer().optional(),
   color: Joi.string().optional(),
   descripcion: Joi.string().allow('', null).optional(),
-  asignado_id: Joi.number().integer().allow(null).optional()
+  asignado_id: Joi.number().integer().allow(null).optional(),
+  asignados_ids: Joi.array().items(Joi.number().integer()).optional().default([])
 });
 
 const createCronogramaSchema = Joi.object({
@@ -125,6 +129,10 @@ const createCronogramaSchema = Joi.object({
     'any.required': 'Se requiere el ID de la evaluación'
   }),
   nombre: Joi.string().optional().default('Cronograma del Proyecto'),
+  equipo_ids: Joi.array().items(Joi.number().integer()).min(1).required().messages({
+    'array.min': 'Debe seleccionar al menos un miembro del equipo',
+    'any.required': 'Se requiere el equipo del proyecto'
+  }),
   tareas: Joi.array().items(tareaSchema).min(1).required().messages({
     'array.min': 'Debe agregar al menos una tarea',
     'any.required': 'Las tareas son requeridas'
@@ -133,6 +141,7 @@ const createCronogramaSchema = Joi.object({
 
 const updateCronogramaSchema = Joi.object({
   nombre: Joi.string().optional(),
+  equipo_ids: Joi.array().items(Joi.number().integer()).optional(),
   tareas: Joi.array().items(tareaSchema).optional()
 });
 
@@ -264,6 +273,16 @@ router.get('/:id', authenticate, authorize('nuevas_tecnologias', 'gerencia'), as
 
     const cronograma = result.rows[0];
 
+    // Get team members info
+    let equipo = [];
+    if (cronograma.equipo_ids && cronograma.equipo_ids.length > 0) {
+      const equipoResult = await pool.query(
+        `SELECT id, nombre, email FROM usuarios WHERE id = ANY($1)`,
+        [cronograma.equipo_ids]
+      );
+      equipo = equipoResult.rows;
+    }
+
     // Get tasks with assigned user info
     const tareas = await pool.query(
       `SELECT ct.*, u.nombre as asignado_nombre, u.email as asignado_email
@@ -276,6 +295,7 @@ router.get('/:id', authenticate, authorize('nuevas_tecnologias', 'gerencia'), as
 
     res.json({
       cronograma,
+      equipo,
       tareas: tareas.rows
     });
   } catch (error) {
@@ -318,13 +338,24 @@ router.post('/', authenticate, authorize('nuevas_tecnologias'), async (req, res,
     // Calculate total estimated duration from tasks
     const duracionTotal = value.tareas.reduce((sum, t) => sum + (t.duracion_dias || 0), 0);
 
+    // Validate that all assigned users are in the team
+    for (const tarea of value.tareas) {
+      if (tarea.asignados_ids && tarea.asignados_ids.length > 0) {
+        for (const userId of tarea.asignados_ids) {
+          if (!value.equipo_ids.includes(userId)) {
+            throw new AppError(`Usuario ${userId} asignado a tarea "${tarea.nombre}" no está en el equipo`, 400);
+          }
+        }
+      }
+    }
+
     await withTransaction(async (client) => {
       // Create cronograma (no dates - dates set when scheduling)
       const cronogramaResult = await client.query(
-        `INSERT INTO cronogramas (evaluacion_id, nombre, duracion_dias_habiles)
-         VALUES ($1, $2, $3)
+        `INSERT INTO cronogramas (evaluacion_id, nombre, duracion_dias_habiles, equipo_ids)
+         VALUES ($1, $2, $3, $4)
          RETURNING *`,
-        [value.evaluacion_id, value.nombre || 'Cronograma del Proyecto', duracionTotal]
+        [value.evaluacion_id, value.nombre || 'Cronograma del Proyecto', duracionTotal, JSON.stringify(value.equipo_ids)]
       );
 
       const cronograma = cronogramaResult.rows[0];
@@ -334,8 +365,8 @@ router.post('/', authenticate, authorize('nuevas_tecnologias'), async (req, res,
         const tarea = value.tareas[i];
         await client.query(
           `INSERT INTO cronograma_tareas (
-            cronograma_id, titulo, duracion_dias, progreso, fase, dependencias, orden, asignado_id
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            cronograma_id, titulo, duracion_dias, progreso, fase, dependencias, orden, asignado_id, asignados_ids
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [
             cronograma.id,
             tarea.nombre,
@@ -344,7 +375,8 @@ router.post('/', authenticate, authorize('nuevas_tecnologias'), async (req, res,
             tarea.fase,
             JSON.stringify(tarea.dependencias || []),
             tarea.orden ?? i,
-            tarea.asignado_id || null
+            tarea.asignado_id || null,
+            JSON.stringify(tarea.asignados_ids || [])
           ]
         );
       }
@@ -395,6 +427,27 @@ router.put('/:id', authenticate, authorize('nuevas_tecnologias'), async (req, re
       throw new AppError('Solo se puede modificar evaluaciones en estado borrador', 400);
     }
 
+    // Get equipo_ids for validation
+    let equipoIds = value.equipo_ids;
+    if (!equipoIds && value.tareas) {
+      // If updating tasks but not team, get existing team
+      const existingTeam = await pool.query('SELECT equipo_ids FROM cronogramas WHERE id = $1', [id]);
+      equipoIds = existingTeam.rows[0]?.equipo_ids || [];
+    }
+
+    // Validate assigned users are in team
+    if (value.tareas && equipoIds) {
+      for (const tarea of value.tareas) {
+        if (tarea.asignados_ids && tarea.asignados_ids.length > 0) {
+          for (const userId of tarea.asignados_ids) {
+            if (!equipoIds.includes(userId)) {
+              throw new AppError(`Usuario ${userId} asignado a tarea "${tarea.nombre}" no está en el equipo`, 400);
+            }
+          }
+        }
+      }
+    }
+
     await withTransaction(async (client) => {
       // Update cronograma
       const updates = [];
@@ -404,6 +457,11 @@ router.put('/:id', authenticate, authorize('nuevas_tecnologias'), async (req, re
       if (value.nombre) {
         updates.push(`nombre = $${paramIndex++}`);
         params.push(value.nombre);
+      }
+
+      if (value.equipo_ids) {
+        updates.push(`equipo_ids = $${paramIndex++}`);
+        params.push(JSON.stringify(value.equipo_ids));
       }
 
       // Calculate total duration if tasks are provided
@@ -432,8 +490,8 @@ router.put('/:id', authenticate, authorize('nuevas_tecnologias'), async (req, re
           const tarea = value.tareas[i];
           await client.query(
             `INSERT INTO cronograma_tareas (
-              cronograma_id, titulo, duracion_dias, progreso, fase, dependencias, orden, asignado_id
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+              cronograma_id, titulo, duracion_dias, progreso, fase, dependencias, orden, asignado_id, asignados_ids
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
             [
               id,
               tarea.nombre,
@@ -442,7 +500,8 @@ router.put('/:id', authenticate, authorize('nuevas_tecnologias'), async (req, re
               tarea.fase,
               JSON.stringify(tarea.dependencias || []),
               tarea.orden ?? i,
-              tarea.asignado_id || null
+              tarea.asignado_id || null,
+              JSON.stringify(tarea.asignados_ids || [])
             ]
           );
         }
