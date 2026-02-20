@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { Card, Typography, Tag, Spin, Button, Divider, Row, Col } from 'antd'
 import { ArrowLeftOutlined, EyeOutlined, CalendarOutlined, UserOutlined } from '@ant-design/icons'
 import { conocimientoApi } from '../../services/api'
+import { marked } from 'marked'
 import dayjs from 'dayjs'
 
 const { Title, Paragraph, Text } = Typography
@@ -77,8 +78,9 @@ function ArticleView() {
         <Divider />
 
         <div
+          className="markdown-content"
           style={{ lineHeight: 1.8 }}
-          dangerouslySetInnerHTML={{ __html: article.contenido }}
+          dangerouslySetInnerHTML={{ __html: marked.parse(article.contenido || '') }}
         />
       </Card>
 

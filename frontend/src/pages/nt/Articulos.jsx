@@ -81,9 +81,11 @@ function NTArticulos() {
       const values = await form.validateFields()
       const data = {
         ...values,
-        etiquetas: values.etiquetas
-          ? values.etiquetas.split(',').map(t => t.trim()).filter(Boolean)
-          : []
+        etiquetas: Array.isArray(values.etiquetas)
+          ? values.etiquetas
+          : values.etiquetas
+            ? values.etiquetas.split(',').map(t => t.trim()).filter(Boolean)
+            : []
       }
 
       if (editingArticle) {
