@@ -51,7 +51,8 @@ app.use(cors({
     config.frontendUrl,
     'http://localhost:11000',
     'http://127.0.0.1:11000',
-    'http://192.168.0.200:11000'
+    'https://tecnologia.inemec.com',
+    'https://api.tecnologia.inemec.com'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],

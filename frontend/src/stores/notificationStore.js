@@ -7,7 +7,7 @@ import { create } from 'zustand'
 import { io } from 'socket.io-client'
 import api from '../services/api'
 
-const SOCKET_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://192.168.0.200:11001'
+const SOCKET_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:11001'
 
 export const useNotificationStore = create((set, get) => ({
   notifications: [],
