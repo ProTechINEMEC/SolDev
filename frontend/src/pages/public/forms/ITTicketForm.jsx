@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Form, Steps, Button, Space, message, Result, Typography, Card, Select } from 'antd'
 import { ArrowLeftOutlined, ArrowRightOutlined, SendOutlined, CheckCircleOutlined } from '@ant-design/icons'
-import { ticketsApi } from '../../../services/api'
+import { ticketsApi, archivosApi } from '../../../services/api'
 import {
   IdentificacionSection,
   ReporteSection,
@@ -24,54 +24,68 @@ function ITTicketForm({ sessionToken, onBack, onSuccess }) {
   const [loading, setLoading] = useState(false)
   const [submittedCode, setSubmittedCode] = useState(null)
 
-  const steps = [
-    {
-      title: 'Identificación',
-      content: <IdentificacionSection form={form} />
-    },
-    {
-      title: 'Reporte',
-      content: (
-        <>
-          <Card title="2. Tipo de Soporte" style={{ marginBottom: 24 }}>
-            <Form.Item
-              name={['reporte', 'categoria']}
-              label="2.1 Categoría del problema"
-              rules={[{ required: true, message: 'Seleccione la categoría del problema' }]}
-              extra={
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  Seleccione la categoría que mejor describe su problema
-                </Text>
-              }
-            >
-              <Select
-                placeholder="Seleccione una categoría"
-                size="large"
-                options={categoriaOptions.map(opt => ({
-                  value: opt.value,
-                  label: (
-                    <div>
-                      <div style={{ fontWeight: 500 }}>{opt.label}</div>
-                      <div style={{ fontSize: 12, color: '#666' }}>{opt.description}</div>
-                    </div>
-                  )
-                }))}
-              />
-            </Form.Item>
-          </Card>
-          <ReporteSection tipo="soporte" />
-        </>
-      )
-    },
-    {
-      title: 'Criticidad',
-      content: <CriticidadSection />
-    }
-  ]
+  const steps = useMemo(() => {
+    let currentSection = 1
+    return [
+      {
+        key: 'identificacion',
+        title: 'Identificación',
+        sectionNumber: currentSection++,
+        content: <IdentificacionSection form={form} showSponsorQuestion={false} />
+      },
+      {
+        key: 'reporte',
+        title: 'Reporte',
+        sectionNumber: currentSection++,
+        content: (
+          <>
+            <Card title={`${currentSection - 1}. Tipo de Soporte`} style={{ marginBottom: 24 }}>
+              <Form.Item
+                name={['reporte', 'categoria']}
+                label={`${currentSection - 1}.1 Categoría del problema`}
+                rules={[{ required: true, message: 'Seleccione la categoría del problema' }]}
+                extra={
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Seleccione la categoría que mejor describe su problema
+                  </Text>
+                }
+              >
+                <Select
+                  placeholder="Seleccione una categoría"
+                  size="large"
+                  optionLabelProp="label"
+                  options={categoriaOptions.map(opt => ({
+                    value: opt.value,
+                    label: opt.label
+                  }))}
+                  optionRender={(option) => {
+                    const opt = categoriaOptions.find(c => c.value === option.value)
+                    return (
+                      <div>
+                        <div style={{ fontWeight: 500 }}>{opt?.label}</div>
+                        <div style={{ fontSize: 12, color: '#666' }}>{opt?.description}</div>
+                      </div>
+                    )
+                  }}
+                />
+              </Form.Item>
+            </Card>
+            <ReporteSection tipo="soporte" sectionNumber={currentSection - 1} />
+          </>
+        )
+      },
+      {
+        key: 'criticidad',
+        title: 'Criticidad',
+        sectionNumber: currentSection++,
+        content: <CriticidadSection sectionNumber={currentSection - 1} />
+      }
+    ]
+  }, [form])
 
   const validateCurrentStep = async () => {
     try {
-      const fieldsToValidate = getFieldsForStep(currentStep)
+      const fieldsToValidate = getFieldsForStep(steps[currentStep]?.key)
       await form.validateFields(fieldsToValidate)
       return true
     } catch (error) {
@@ -79,21 +93,20 @@ function ITTicketForm({ sessionToken, onBack, onSuccess }) {
     }
   }
 
-  const getFieldsForStep = (step) => {
-    switch (step) {
-      case 0:
+  const getFieldsForStep = (stepKey) => {
+    switch (stepKey) {
+      case 'identificacion':
         return [
           ['identificacion', 'nombre_completo'],
           ['identificacion', 'cargo'],
           ['identificacion', 'area'],
           ['identificacion', 'operacion_contrato'],
           ['identificacion', 'correo'],
-          ['identificacion', 'cedula'],
-          ['identificacion', 'es_doliente']
+          ['identificacion', 'cedula']
         ]
-      case 1:
-        return [['reporte', 'categoria'], ['reporte', 'descripcion']]
-      case 2:
+      case 'reporte':
+        return [['reporte', 'categoria'], ['reporte', 'titulo'], ['reporte', 'descripcion']]
+      case 'criticidad':
         return [
           ['criticidad', 'urgencia'],
           ['criticidad', 'justificacion']
@@ -124,7 +137,7 @@ function ITTicketForm({ sessionToken, onBack, onSuccess }) {
 
       // Map form values to API format
       const ticketData = {
-        titulo: `Soporte: ${values.reporte?.descripcion?.substring(0, 50)}...`,
+        titulo: values.reporte?.titulo,
         descripcion: values.reporte?.descripcion,
         categoria: values.reporte?.categoria || 'soporte_general',
         prioridad: values.criticidad?.urgencia || 'media',
@@ -134,6 +147,20 @@ function ITTicketForm({ sessionToken, onBack, onSuccess }) {
       }
 
       const response = await ticketsApi.create(ticketData)
+      const ticketId = response.data.ticket.id
+
+      // Upload files from reporte evidencia section
+      const reporteFiles = values.reporte?.evidencia?.filter(f => f.originFileObj) || []
+      if (reporteFiles.length > 0) {
+        try {
+          await archivosApi.upload('ticket', ticketId, reporteFiles, sessionToken, 'reporte_evidencia')
+          message.success(`${reporteFiles.length} archivo(s) subido(s)`)
+        } catch (uploadError) {
+          console.error('Error uploading files:', uploadError)
+          message.warning('Ticket creado pero algunos archivos no se pudieron subir')
+        }
+      }
+
       setSubmittedCode(response.data.ticket.codigo)
       message.success('Ticket creado exitosamente')
       onSuccess?.(response.data.ticket)
@@ -166,7 +193,7 @@ function ITTicketForm({ sessionToken, onBack, onSuccess }) {
             <Button
               key="status"
               type="primary"
-              onClick={() => window.location.href = `/consulta/buscar?codigo=${submittedCode}`}
+              onClick={() => window.location.href = `/consulta/${submittedCode}`}
             >
               Consultar Estado
             </Button>,
@@ -194,7 +221,7 @@ function ITTicketForm({ sessionToken, onBack, onSuccess }) {
       >
         {/* Render all steps but only show current one - preserves form values */}
         {steps.map((step, index) => (
-          <div key={index} style={{ display: index === currentStep ? 'block' : 'none' }}>
+          <div key={step.key} style={{ display: index === currentStep ? 'block' : 'none' }}>
             {step.content}
           </div>
         ))}

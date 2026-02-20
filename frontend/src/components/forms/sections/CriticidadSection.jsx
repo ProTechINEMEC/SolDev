@@ -40,12 +40,12 @@ const urgenciaOptions = [
   }
 ]
 
-function CriticidadSection() {
+function CriticidadSection({ sectionNumber = 3 }) {
   return (
-    <Card title="3. Criticidad" style={{ marginBottom: 24 }}>
+    <Card title={`${sectionNumber}. Criticidad`} style={{ marginBottom: 24 }}>
       <Form.Item
         name={['criticidad', 'urgencia']}
-        label="3.1 Urgencia de la solución"
+        label={`${sectionNumber}.1 Urgencia de la solución`}
         rules={[{ required: true, message: 'Seleccione el nivel de urgencia' }]}
       >
         <Radio.Group>
@@ -78,7 +78,7 @@ function CriticidadSection() {
 
       <Form.Item
         name={['criticidad', 'justificacion']}
-        label="3.2 Justificación"
+        label={`${sectionNumber}.2 Justificación`}
         rules={[
           { required: true, message: 'Justifique el nivel de urgencia seleccionado' },
           { min: 10, message: 'La justificación debe tener al menos 10 caracteres' }

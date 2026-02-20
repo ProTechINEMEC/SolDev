@@ -75,7 +75,7 @@ function GerenciaAprobaciones() {
       key: 'codigo',
       width: 140,
       render: (codigo, record) => (
-        <Link to={`/gerencia/aprobaciones/${record.id}`}>
+        <Link to={`/gerencia/aprobaciones/${record.codigo}`}>
           <Text strong style={{ color: '#1890ff' }}>{codigo}</Text>
         </Link>
       )
@@ -143,7 +143,7 @@ function GerenciaAprobaciones() {
             <Badge
               count={`${days}d`}
               style={{
-                backgroundColor: days > 7 ? '#ff4d4f' : days > 3 ? '#faad14' : '#52c41a'
+                backgroundColor: days > 7 ? '#ff4d4f' : days > 3 ? '#faad14' : '#8c8c8c'
               }}
             />
           </Tooltip>
@@ -156,7 +156,7 @@ function GerenciaAprobaciones() {
       width: 100,
       fixed: 'right',
       render: (_, record) => (
-        <Link to={`/gerencia/aprobaciones/${record.id}`}>
+        <Link to={`/gerencia/aprobaciones/${record.codigo}`}>
           <Button type="primary" size="small" icon={<EyeOutlined />}>
             Revisar
           </Button>

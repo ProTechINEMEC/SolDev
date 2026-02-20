@@ -31,7 +31,7 @@ function GerenciaDashboard() {
   }
 
   const columns = [
-    { title: 'Código', dataIndex: 'codigo', render: (c, r) => <Link to={`/gerencia/aprobaciones/${r.id}`}>{c}</Link> },
+    { title: 'Código', dataIndex: 'codigo', render: (c, r) => <Link to={`/gerencia/aprobaciones/${r.codigo}`}>{c}</Link> },
     { title: 'Título', dataIndex: 'titulo', ellipsis: true },
     { title: 'Prioridad', dataIndex: 'prioridad', render: (p) => <Tag color={p === 'critica' ? 'red' : p === 'alta' ? 'orange' : 'cyan'}>{p}</Tag> },
     { title: 'Solicitante', dataIndex: 'solicitante_nombre' },

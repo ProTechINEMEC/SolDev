@@ -456,41 +456,55 @@ router.post('/preview', authenticate, authorize('gerencia'), async (req, res, ne
       throw new AppError('El cronograma no tiene tareas', 400);
     }
 
-    // Get the original cronograma's date range
+    // Tasks are sequential and stored with duration only (no dates)
+    // Calculate dates based on duration and task order
     const tareas = tareasResult.rows;
-    const originalStart = new Date(Math.min(...tareas.map(t => new Date(t.fecha_inicio))));
-    const originalEnd = new Date(Math.max(...tareas.map(t => new Date(t.fecha_fin))));
-    const originalDuration = getWorkdaysBetween(originalStart, originalEnd);
 
-    // Calculate offset in workdays
-    const newStart = new Date(fecha_inicio);
+    // Ensure we start on a workday (skip weekends and holidays)
+    let newStart = new Date(fecha_inicio);
+    const startYear = newStart.getFullYear();
+    const allHolidays = [
+      ...getColombianHolidays(startYear),
+      ...getColombianHolidays(startYear + 1)
+    ];
 
-    // Project each task to new dates
+    // Move to next workday if start date is not a workday
+    while (!isWorkday(newStart, allHolidays)) {
+      newStart.setDate(newStart.getDate() + 1);
+    }
+
+    // Calculate sequential task dates based on task order and duration
+    // Tasks run in sequence - each starts after the previous one finishes
+    let currentDay = 0;
     const proyectedTasks = tareas.map(tarea => {
-      const taskOriginalStart = new Date(tarea.fecha_inicio);
-      const taskOriginalEnd = new Date(tarea.fecha_fin);
+      const taskDuration = tarea.duracion_dias || tarea.duracion || 1;
+      const taskStartDay = currentDay;
+      const taskEndDay = currentDay + taskDuration - 1;
 
-      // Calculate workday offset from original project start
-      const startOffset = getWorkdaysBetween(originalStart, taskOriginalStart);
-      const taskDuration = getWorkdaysBetween(taskOriginalStart, taskOriginalEnd);
+      // Calculate actual dates using workdays
+      // For first task (taskStartDay=0), use newStart directly
+      // For subsequent tasks, add workdays from newStart
+      const newTaskStart = taskStartDay === 0 ? new Date(newStart) : addWorkdays(newStart, taskStartDay);
+      const newTaskEnd = addWorkdays(newStart, taskEndDay);
 
-      // Apply offset to new start date
-      const newTaskStart = addWorkdays(newStart, startOffset);
-      const newTaskEnd = addWorkdays(newTaskStart, taskDuration - 1);
+      // Move to next task position (sequential)
+      currentDay = taskEndDay + 1;
 
       return {
         id: tarea.id,
         nombre: tarea.nombre || tarea.titulo,
         fase: tarea.fase,
-        fecha_inicio_original: tarea.fecha_inicio,
-        fecha_fin_original: tarea.fecha_fin,
         fecha_inicio: newTaskStart.toISOString().split('T')[0],
         fecha_fin: newTaskEnd.toISOString().split('T')[0],
         duracion_dias: taskDuration,
         asignado_id: tarea.asignado_id,
-        asignado_nombre: tarea.asignado_nombre
+        asignado_nombre: tarea.asignado_nombre,
+        asignados_ids: tarea.asignados_ids || (tarea.asignado_id ? [tarea.asignado_id] : [])
       };
     });
+
+    // Calculate total project duration
+    const totalDuration = tareas.reduce((sum, t) => sum + (t.duracion_dias || t.duracion || 1), 0);
 
     // Calculate new project end date
     const newEnd = new Date(Math.max(...proyectedTasks.map(t => new Date(t.fecha_fin))));
@@ -583,7 +597,7 @@ router.post('/preview', authenticate, authorize('gerencia'), async (req, res, ne
         titulo,
         fecha_inicio: newStart.toISOString().split('T')[0],
         fecha_fin: newEnd.toISOString().split('T')[0],
-        duracion_dias_habiles: originalDuration
+        duracion_dias_habiles: totalDuration
       },
       tareas: proyectedTasks,
       warnings: uniqueWarnings.slice(0, 10) // Limit to 10 warnings

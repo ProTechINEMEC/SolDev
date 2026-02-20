@@ -78,12 +78,24 @@ function NewRequest() {
   const handleRequestCode = async (values) => {
     setLoading(true)
     try {
-      await verificacionApi.solicitar({
+      const response = await verificacionApi.solicitar({
         email: values.email,
         nombre: values.nombre
       })
-      setVerificationSent(true)
-      message.success('Código de verificación enviado a su email')
+
+      // If auto-verified (email verification disabled), skip to category selection
+      if (response.data.autoVerified) {
+        setSessionToken(response.data.sessionToken)
+        setSolicitanteData({
+          nombre: response.data.solicitante.nombre,
+          email: response.data.solicitante.email
+        })
+        setStep('category')
+        message.success('Verificación completada')
+      } else {
+        setVerificationSent(true)
+        message.success('Código de verificación enviado a su email')
+      }
     } catch (error) {
       message.error(error.message || 'Error al enviar código')
     } finally {

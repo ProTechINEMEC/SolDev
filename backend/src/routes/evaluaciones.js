@@ -9,20 +9,32 @@ const router = express.Router();
 
 // Validation schemas
 const createEvaluacionSchema = Joi.object({
-  solicitud_id: Joi.number().integer().required(),
+  solicitud_id: Joi.number().integer().optional(),
+  solicitud_codigo: Joi.string().optional(),
   resumen_ejecutivo: Joi.string().required(),
   recomendacion: Joi.string().valid('aprobar', 'rechazar', 'aplazar').required(),
   justificacion_recomendacion: Joi.string().required(),
   riesgos_identificados: Joi.array().items(Joi.string()).optional(),
-  notas_adicionales: Joi.string().allow('', null).optional()
-});
+  notas_adicionales: Joi.string().allow('', null).optional(),
+  fecha_inicio_posible: Joi.date().allow(null).optional()
+}).or('solicitud_id', 'solicitud_codigo');
+
+// Helper to get solicitud ID from codigo
+const getSolicitudIdByCodigo = async (codigo) => {
+  const result = await pool.query('SELECT id FROM solicitudes WHERE codigo = $1', [codigo]);
+  if (result.rows.length === 0) {
+    throw new AppError('Solicitud no encontrada', 404);
+  }
+  return result.rows[0].id;
+};
 
 const updateEvaluacionSchema = Joi.object({
   resumen_ejecutivo: Joi.string().optional(),
   recomendacion: Joi.string().valid('aprobar', 'rechazar', 'aplazar').optional(),
   justificacion_recomendacion: Joi.string().optional(),
   riesgos_identificados: Joi.array().items(Joi.string()).optional(),
-  notas_adicionales: Joi.string().allow('', null).optional()
+  notas_adicionales: Joi.string().allow('', null).optional(),
+  fecha_inicio_posible: Joi.date().allow(null).optional()
 });
 
 // GET /api/evaluaciones - List evaluations
@@ -71,6 +83,130 @@ router.get('/', authenticate, authorize('nuevas_tecnologias', 'gerencia'), async
         total,
         pages: Math.ceil(total / parseInt(limit, 10))
       }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/evaluaciones/solicitud/:param - Get evaluation by solicitud ID or codigo
+// Accepts both numeric ID (e.g., 33) and codigo (e.g., SOL-2026-0033 or PRY-2026-0001)
+router.get('/solicitud/:param', authenticate, authorize('nuevas_tecnologias', 'gerencia'), async (req, res, next) => {
+  try {
+    const { param } = req.params;
+    let solicitudId;
+
+    // Check if param is a codigo (starts with SOL- or PRY-) or a numeric ID
+    const upperParam = param.toUpperCase();
+    if (upperParam.startsWith('SOL-') || upperParam.startsWith('PRY-')) {
+      // It's a codigo - need to resolve to solicitud_id
+      if (upperParam.startsWith('PRY-')) {
+        // Look up from proyectos table
+        const proyectoResult = await pool.query(
+          'SELECT solicitud_id FROM proyectos WHERE codigo = $1',
+          [upperParam]
+        );
+        if (proyectoResult.rows.length === 0) {
+          // Return empty evaluation if project not found
+          return res.json({ evaluacion: null, cronograma: null, tareas: [], estimacion: null, equipo: [] });
+        }
+        solicitudId = proyectoResult.rows[0].solicitud_id;
+      } else {
+        // Look up from solicitudes table
+        const solicitudResult = await pool.query(
+          'SELECT id FROM solicitudes WHERE codigo = $1',
+          [upperParam]
+        );
+        if (solicitudResult.rows.length === 0) {
+          return res.json({ evaluacion: null, cronograma: null, tareas: [], estimacion: null, equipo: [] });
+        }
+        solicitudId = solicitudResult.rows[0].id;
+      }
+    } else {
+      // It's a numeric ID
+      solicitudId = parseInt(param, 10);
+      if (isNaN(solicitudId)) {
+        return res.json({ evaluacion: null, cronograma: null, tareas: [], estimacion: null, equipo: [] });
+      }
+    }
+
+    const result = await pool.query(
+      `SELECT e.*,
+        s.codigo as solicitud_codigo,
+        s.titulo as solicitud_titulo,
+        s.tipo as solicitud_tipo,
+        s.prioridad as solicitud_prioridad,
+        u.nombre as evaluador_nombre,
+        l.nombre as lider_nombre
+       FROM evaluaciones_nt e
+       JOIN solicitudes s ON e.solicitud_id = s.id
+       LEFT JOIN usuarios u ON e.evaluador_id = u.id
+       LEFT JOIN usuarios l ON e.lider_id = l.id
+       WHERE e.solicitud_id = $1
+       ORDER BY e.creado_en DESC
+       LIMIT 1`,
+      [solicitudId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({ evaluacion: null, cronograma: null, tareas: [], estimacion: null, equipo: [] });
+    }
+
+    const evaluacion = result.rows[0];
+
+    // Get cronograma - check both by solicitud_id and evaluacion_id
+    let cronogramaResult = await pool.query(
+      `SELECT * FROM cronogramas WHERE solicitud_id = $1`,
+      [solicitudId]
+    );
+
+    // If not found by solicitud_id, try by evaluacion_id
+    if (cronogramaResult.rows.length === 0) {
+      cronogramaResult = await pool.query(
+        `SELECT * FROM cronogramas WHERE evaluacion_id = $1`,
+        [evaluacion.id]
+      );
+    }
+    const cronograma = cronogramaResult.rows[0] || null;
+
+    // Get tasks if cronograma exists
+    let tareas = [];
+    if (cronograma) {
+      const tareasResult = await pool.query(
+        `SELECT ct.*, u.nombre as asignado_nombre
+         FROM cronograma_tareas ct
+         LEFT JOIN usuarios u ON ct.asignado_id = u.id
+         WHERE ct.cronograma_id = $1
+         ORDER BY ct.fase, ct.orden, ct.fecha_inicio`,
+        [cronograma.id]
+      );
+      tareas = tareasResult.rows;
+    }
+
+    // Get cost estimation
+    const estimacionResult = await pool.query(
+      `SELECT * FROM estimaciones_costo WHERE evaluacion_id = $1`,
+      [evaluacion.id]
+    );
+    const estimacion = estimacionResult.rows[0] || null;
+
+    // Get team assignments
+    const equipoResult = await pool.query(
+      `SELECT ea.*, u.nombre as usuario_nombre, u.email as usuario_email
+       FROM evaluacion_asignaciones ea
+       JOIN usuarios u ON ea.usuario_id = u.id
+       WHERE ea.evaluacion_id = $1
+       ORDER BY ea.es_lider DESC, u.nombre`,
+      [evaluacion.id]
+    );
+    const equipo = equipoResult.rows;
+
+    res.json({
+      evaluacion,
+      cronograma,
+      tareas,
+      estimacion,
+      equipo
     });
   } catch (error) {
     next(error);
@@ -148,72 +284,6 @@ router.get('/:id', authenticate, authorize('nuevas_tecnologias', 'gerencia'), as
   }
 });
 
-// GET /api/evaluaciones/solicitud/:solicitudId - Get evaluation by solicitud
-router.get('/solicitud/:solicitudId', authenticate, authorize('nuevas_tecnologias', 'gerencia'), async (req, res, next) => {
-  try {
-    const { solicitudId } = req.params;
-
-    const result = await pool.query(
-      `SELECT e.*,
-        u.nombre as evaluador_nombre
-       FROM evaluaciones_nt e
-       LEFT JOIN usuarios u ON e.evaluador_id = u.id
-       WHERE e.solicitud_id = $1
-       ORDER BY e.creado_en DESC
-       LIMIT 1`,
-      [solicitudId]
-    );
-
-    if (result.rows.length === 0) {
-      res.json({ evaluacion: null });
-      return;
-    }
-
-    const evaluacion = result.rows[0];
-
-    // Get related data
-    const cronograma = await pool.query(
-      `SELECT * FROM cronogramas WHERE evaluacion_id = $1`,
-      [evaluacion.id]
-    );
-
-    let tareas = [];
-    if (cronograma.rows.length > 0) {
-      const tareasResult = await pool.query(
-        `SELECT * FROM cronograma_tareas
-         WHERE cronograma_id = $1
-         ORDER BY orden`,
-        [cronograma.rows[0].id]
-      );
-      tareas = tareasResult.rows;
-    }
-
-    const estimacion = await pool.query(
-      `SELECT * FROM estimaciones_costo WHERE evaluacion_id = $1`,
-      [evaluacion.id]
-    );
-
-    const equipo = await pool.query(
-      `SELECT ea.*, u.nombre as usuario_nombre, u.email as usuario_email
-       FROM evaluacion_asignaciones ea
-       JOIN usuarios u ON ea.usuario_id = u.id
-       WHERE ea.evaluacion_id = $1
-       ORDER BY ea.es_lider DESC, u.nombre`,
-      [evaluacion.id]
-    );
-
-    res.json({
-      evaluacion,
-      cronograma: cronograma.rows[0] || null,
-      tareas,
-      estimacion: estimacion.rows[0] || null,
-      equipo: equipo.rows
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
 // POST /api/evaluaciones - Create evaluation
 router.post('/', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
   try {
@@ -222,10 +292,20 @@ router.post('/', authenticate, authorize('nuevas_tecnologias'), async (req, res,
       throw new AppError(error.details[0].message, 400);
     }
 
+    // Get solicitud_id from codigo if provided
+    let solicitudId = value.solicitud_id;
+    if (value.solicitud_codigo && !solicitudId) {
+      solicitudId = await getSolicitudIdByCodigo(value.solicitud_codigo);
+    }
+
+    if (!solicitudId) {
+      throw new AppError('Se requiere solicitud_id o solicitud_codigo', 400);
+    }
+
     // Check solicitud exists and is in correct state
     const solicitudResult = await pool.query(
       'SELECT * FROM solicitudes WHERE id = $1',
-      [value.solicitud_id]
+      [solicitudId]
     );
 
     if (solicitudResult.rows.length === 0) {
@@ -240,7 +320,7 @@ router.post('/', authenticate, authorize('nuevas_tecnologias'), async (req, res,
     // Check if evaluation already exists
     const existingEval = await pool.query(
       'SELECT id FROM evaluaciones_nt WHERE solicitud_id = $1 AND estado != $2',
-      [value.solicitud_id, 'descartado']
+      [solicitudId, 'descartado']
     );
 
     if (existingEval.rows.length > 0) {
@@ -251,17 +331,18 @@ router.post('/', authenticate, authorize('nuevas_tecnologias'), async (req, res,
       `INSERT INTO evaluaciones_nt (
         solicitud_id, evaluador_id, resumen_ejecutivo,
         recomendacion, justificacion_recomendacion,
-        riesgos_identificados, notas_adicionales, estado
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'borrador')
+        riesgos_identificados, notas_adicionales, fecha_inicio_posible, estado
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'borrador')
       RETURNING *`,
       [
-        value.solicitud_id,
+        solicitudId,
         req.user.id,
         value.resumen_ejecutivo,
         value.recomendacion,
         value.justificacion_recomendacion,
         JSON.stringify(value.riesgos_identificados || []),
-        value.notas_adicionales
+        value.notas_adicionales,
+        value.fecha_inicio_posible || null
       ]
     );
 
@@ -323,6 +404,10 @@ router.put('/:id', authenticate, authorize('nuevas_tecnologias'), async (req, re
     if (value.notas_adicionales !== undefined) {
       updates.push(`notas_adicionales = $${paramIndex++}`);
       params.push(value.notas_adicionales);
+    }
+    if (value.fecha_inicio_posible !== undefined) {
+      updates.push(`fecha_inicio_posible = $${paramIndex++}`);
+      params.push(value.fecha_inicio_posible || null);
     }
 
     if (updates.length === 0) {

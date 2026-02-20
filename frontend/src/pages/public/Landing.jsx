@@ -227,18 +227,6 @@ function Landing() {
         </Link>
       </Card>
 
-      {/* Footer */}
-      <div style={{
-        textAlign: 'center',
-        padding: '24px',
-        background: '#1a1a1a',
-        borderRadius: 8,
-        color: 'rgba(255,255,255,0.65)'
-      }}>
-        <Text style={{ color: 'rgba(255,255,255,0.65)' }}>
-          © {new Date().getFullYear()} INEMEC S.A. - Departamento de Nuevas Tecnologías
-        </Text>
-      </div>
     </div>
   )
 }

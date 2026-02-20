@@ -110,10 +110,7 @@ const tareaSchema = Joi.object({
     'number.min': 'La duración mínima es 1 día',
     'any.required': 'La duración es requerida'
   }),
-  fase: Joi.string().valid('analisis', 'diseno', 'desarrollo', 'pruebas', 'documentacion', 'entrega').required().messages({
-    'any.only': 'La fase debe ser: análisis, diseño, desarrollo, pruebas, documentación o entrega',
-    'any.required': 'La fase es requerida'
-  }),
+  fase: Joi.string().allow('').optional().default(''),
   dependencias: Joi.array().items(Joi.alternatives().try(Joi.string(), Joi.number())).optional().default([]),
   progreso: Joi.number().min(0).max(100).default(0),
   orden: Joi.number().integer().optional(),
@@ -133,6 +130,7 @@ const createCronogramaSchema = Joi.object({
     'array.min': 'Debe seleccionar al menos un miembro del equipo',
     'any.required': 'Se requiere el equipo del proyecto'
   }),
+  fases: Joi.array().items(Joi.string()).optional().default([]),
   tareas: Joi.array().items(tareaSchema).min(1).required().messages({
     'array.min': 'Debe agregar al menos una tarea',
     'any.required': 'Las tareas son requeridas'
@@ -142,6 +140,7 @@ const createCronogramaSchema = Joi.object({
 const updateCronogramaSchema = Joi.object({
   nombre: Joi.string().optional(),
   equipo_ids: Joi.array().items(Joi.number().integer()).optional(),
+  fases: Joi.array().items(Joi.string()).optional(),
   tareas: Joi.array().items(tareaSchema).optional()
 });
 
@@ -352,10 +351,10 @@ router.post('/', authenticate, authorize('nuevas_tecnologias'), async (req, res,
     await withTransaction(async (client) => {
       // Create cronograma (no dates - dates set when scheduling)
       const cronogramaResult = await client.query(
-        `INSERT INTO cronogramas (evaluacion_id, nombre, duracion_dias_habiles, equipo_ids)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO cronogramas (evaluacion_id, nombre, duracion_dias_habiles, equipo_ids, fases)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING *`,
-        [value.evaluacion_id, value.nombre || 'Cronograma del Proyecto', duracionTotal, JSON.stringify(value.equipo_ids)]
+        [value.evaluacion_id, value.nombre || 'Cronograma del Proyecto', duracionTotal, JSON.stringify(value.equipo_ids), JSON.stringify(value.fases || [])]
       );
 
       const cronograma = cronogramaResult.rows[0];
@@ -462,6 +461,11 @@ router.put('/:id', authenticate, authorize('nuevas_tecnologias'), async (req, re
       if (value.equipo_ids) {
         updates.push(`equipo_ids = $${paramIndex++}`);
         params.push(JSON.stringify(value.equipo_ids));
+      }
+
+      if (value.fases) {
+        updates.push(`fases = $${paramIndex++}`);
+        params.push(JSON.stringify(value.fases));
       }
 
       // Calculate total duration if tasks are provided

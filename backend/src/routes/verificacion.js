@@ -45,6 +45,46 @@ router.post('/solicitar', async (req, res, next) => {
     const { email, nombre } = value;
     const emailLower = email.toLowerCase();
 
+    // If email verification is disabled, auto-verify and return session token
+    if (config.verification.skipEmailVerification) {
+      // Create or update solicitante record
+      const solicitanteResult = await pool.query(
+        `INSERT INTO solicitantes (email, nombre, verificado)
+         VALUES ($1, $2, true)
+         ON CONFLICT (email)
+         DO UPDATE SET nombre = $2, verificado = true, ultima_verificacion = NOW()
+         RETURNING id, email, nombre`,
+        [emailLower, nombre]
+      );
+
+      const solicitante = solicitanteResult.rows[0];
+
+      // Generate temporary session token for form submission (valid 2 hours)
+      const sessionToken = require('crypto').randomBytes(32).toString('hex');
+      const sessionExpires = new Date(Date.now() + 2 * 60 * 60 * 1000);
+
+      await pool.query(
+        `INSERT INTO sesiones_solicitante (solicitante_id, token, expira_en)
+         VALUES ($1, $2, $3)`,
+        [solicitante.id, sessionToken, sessionExpires]
+      );
+
+      logger.info(`Email auto-verified (verification disabled): ${emailLower}`);
+
+      return res.json({
+        message: 'Email verificado automáticamente',
+        verified: true,
+        autoVerified: true,
+        solicitante: {
+          id: solicitante.id,
+          email: solicitante.email,
+          nombre: solicitante.nombre
+        },
+        sessionToken,
+        sessionExpires
+      });
+    }
+
     // Check for existing active code (rate limiting)
     const existingCode = await pool.query(
       `SELECT * FROM codigos_verificacion

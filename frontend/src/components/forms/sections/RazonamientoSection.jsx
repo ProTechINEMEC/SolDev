@@ -3,12 +3,33 @@ import { Form, Input, Card, Typography } from 'antd'
 const { TextArea } = Input
 const { Text } = Typography
 
-function RazonamientoSection() {
+function RazonamientoSection({ sectionNumber = 3 }) {
   return (
-    <Card title="2. Razonamiento" style={{ marginBottom: 24 }}>
+    <Card title={`${sectionNumber}. Razonamiento`} style={{ marginBottom: 24 }}>
+      <Form.Item
+        name={['razonamiento', 'titulo']}
+        label={`${sectionNumber}.1 Título de la solicitud`}
+        rules={[
+          { required: true, message: 'Ingrese un título para la solicitud' },
+          { min: 5, message: 'El título debe tener al menos 5 caracteres' },
+          { max: 100, message: 'El título no puede exceder 100 caracteres' }
+        ]}
+        extra={
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Un título breve que identifique el servicio a cerrar
+          </Text>
+        }
+      >
+        <Input
+          placeholder="Ej: Cierre de sistema de inventario legacy"
+          maxLength={100}
+          showCount
+        />
+      </Form.Item>
+
       <Form.Item
         name={['razonamiento', 'descripcion']}
-        label="2.1 Descripción de la razón de cierre"
+        label={`${sectionNumber}.2 Descripción de la razón de cierre`}
         rules={[
           { required: true, message: 'Describa la razón del cierre' },
           { min: 20, message: 'La descripción debe tener al menos 20 caracteres' }

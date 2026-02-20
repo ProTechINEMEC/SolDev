@@ -350,7 +350,7 @@ function CalendarioProyectos() {
                     key="view"
                     type="link"
                     icon={<EyeOutlined />}
-                    onClick={() => navigate(`/gerencia/aprobaciones/${p.id}`)}
+                    onClick={() => navigate(`/gerencia/aprobaciones/${p.codigo}`)}
                   >
                     Ver Detalle
                   </Button>
@@ -423,7 +423,7 @@ function CalendarioProyectos() {
             icon={<EyeOutlined />}
             onClick={() => {
               setDetailModalVisible(false)
-              navigate(`/gerencia/aprobaciones/${selectedProyecto?.id}`)
+              navigate(`/gerencia/aprobaciones/${selectedProyecto?.codigo}`)
             }}
           >
             Ver Completo

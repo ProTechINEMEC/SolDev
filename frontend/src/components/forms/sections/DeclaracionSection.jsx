@@ -3,9 +3,9 @@ import { InfoCircleOutlined } from '@ant-design/icons'
 
 const { Text } = Typography
 
-function DeclaracionSection({ esSponsor = false }) {
+function DeclaracionSection({ esSponsor = false, sectionNumber = 10 }) {
   return (
-    <Card title="10. Declaración y Envío" style={{ marginBottom: 24 }}>
+    <Card title={`${sectionNumber}. Declaración y Envío`} style={{ marginBottom: 24 }}>
       <Alert
         message="Antes de enviar"
         description="Por favor revise toda la información proporcionada. Una vez enviada, la solicitud será evaluada por el equipo de Nuevas Tecnologías."
@@ -27,7 +27,7 @@ function DeclaracionSection({ esSponsor = false }) {
       >
         <Checkbox>
           <Text>
-            <Text strong>10.1 </Text>
+            <Text strong>{sectionNumber}.1 </Text>
             Confirmo que la información presentada en esta solicitud es correcta y completa al mejor de mi conocimiento.
           </Text>
         </Checkbox>
@@ -40,7 +40,7 @@ function DeclaracionSection({ esSponsor = false }) {
         >
           <Checkbox>
             <Text>
-              <Text strong>10.2 </Text>
+              <Text strong>{sectionNumber}.2 </Text>
               Como sponsor del proyecto, acepto participar activamente en el seguimiento, validación y medición de resultados.
             </Text>
           </Checkbox>

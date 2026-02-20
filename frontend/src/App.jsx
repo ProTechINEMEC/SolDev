@@ -13,6 +13,8 @@ import ArticleView from './pages/public/ArticleView'
 import NewRequest from './pages/public/NewRequest'
 import RequestStatus from './pages/public/RequestStatus'
 import TicketStatus from './pages/public/TicketStatus'
+import ProyectoStatus from './pages/public/ProyectoStatus'
+import ResponsePage from './pages/public/ResponsePage'
 import Login from './pages/auth/Login'
 import ForgotPassword from './pages/auth/ForgotPassword'
 import ResetPassword from './pages/auth/ResetPassword'
@@ -27,7 +29,7 @@ import NTSolicitudDetail from './pages/nt/SolicitudDetail'
 import NTEvaluacionForm from './pages/nt/EvaluacionForm'
 import NTProyectos from './pages/nt/Proyectos'
 import NTProyectoDetail from './pages/nt/ProyectoDetail'
-import NTTicketsEscalados from './pages/nt/TicketsEscalados'
+import NTCalendario from './pages/nt/Calendario'
 import NTArticulos from './pages/nt/Articulos'
 import NTUsuarios from './pages/nt/Usuarios'
 import { OpcionesConfig } from './pages/nt/configuracion'
@@ -36,6 +38,7 @@ import { OpcionesConfig } from './pages/nt/configuracion'
 import TIDashboard from './pages/ti/Dashboard'
 import TITickets from './pages/ti/Tickets'
 import TITicketDetail from './pages/ti/TicketDetail'
+import TICalendario from './pages/ti/Calendario'
 
 // Gerencia Pages
 import GerenciaDashboard from './pages/gerencia/Dashboard'
@@ -84,6 +87,9 @@ function App() {
         <Route path="/nueva-solicitud" element={<NewRequest />} />
         <Route path="/consulta/:codigo" element={<RequestStatus />} />
         <Route path="/tickets/consulta/:codigo" element={<TicketStatus />} />
+        <Route path="/proyecto/consulta/:codigo" element={<ProyectoStatus />} />
+        <Route path="/proyecto/consulta" element={<ProyectoStatus />} />
+        <Route path="/responder/:token" element={<ResponsePage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password/:token" element={<ResetPassword />} />
@@ -100,11 +106,11 @@ function App() {
       >
         <Route index element={<NTDashboard />} />
         <Route path="solicitudes" element={<NTSolicitudes />} />
-        <Route path="solicitudes/:id" element={<NTSolicitudDetail />} />
-        <Route path="solicitudes/:solicitudId/evaluacion" element={<NTEvaluacionForm />} />
+        <Route path="solicitudes/:codigo" element={<NTSolicitudDetail />} />
+        <Route path="solicitudes/:codigo/evaluacion" element={<NTEvaluacionForm />} />
         <Route path="proyectos" element={<NTProyectos />} />
-        <Route path="proyectos/:id" element={<NTProyectoDetail />} />
-        <Route path="tickets-escalados" element={<NTTicketsEscalados />} />
+        <Route path="proyectos/:codigo" element={<NTProyectoDetail />} />
+        <Route path="calendario" element={<NTCalendario />} />
         <Route path="articulos" element={<NTArticulos />} />
         <Route path="usuarios" element={<NTUsuarios />} />
         <Route path="configuracion" element={<OpcionesConfig />} />
@@ -122,7 +128,8 @@ function App() {
       >
         <Route index element={<TIDashboard />} />
         <Route path="tickets" element={<TITickets />} />
-        <Route path="tickets/:id" element={<TITicketDetail />} />
+        <Route path="tickets/:codigo" element={<TITicketDetail />} />
+        <Route path="calendario" element={<TICalendario />} />
         <Route path="perfil" element={<Profile />} />
       </Route>
 
@@ -137,7 +144,7 @@ function App() {
       >
         <Route index element={<GerenciaDashboard />} />
         <Route path="aprobaciones" element={<GerenciaAprobaciones />} />
-        <Route path="aprobaciones/:id" element={<GerenciaAprobacionDetail />} />
+        <Route path="aprobaciones/:codigo" element={<GerenciaAprobacionDetail />} />
         <Route path="calendario" element={<GerenciaCalendario />} />
         <Route path="reportes" element={<GerenciaReportes />} />
         <Route path="perfil" element={<Profile />} />

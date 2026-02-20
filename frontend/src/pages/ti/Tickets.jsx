@@ -248,7 +248,7 @@ function TITickets() {
       dataIndex: 'codigo',
       width: 140,
       render: (code, record) => (
-        <Link to={`/ti/tickets/${record.id}`}>
+        <Link to={`/ti/tickets/${record.codigo}`}>
           <Text strong style={{ color: '#1890ff', whiteSpace: 'nowrap' }}>{code}</Text>
         </Link>
       )
@@ -320,7 +320,7 @@ function TITickets() {
       dataIndex: 'codigo',
       width: 140,
       render: (code, record) => (
-        <Link to={`/ti/tickets/${record.id}`}>
+        <Link to={`/ti/tickets/${record.codigo}`}>
           <Text strong style={{ color: '#1890ff', whiteSpace: 'nowrap' }}>{code}</Text>
         </Link>
       )

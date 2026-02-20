@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { Form, Steps, Button, Space, message, Result, Typography, Card, Progress } from 'antd'
 import { ArrowLeftOutlined, ArrowRightOutlined, SendOutlined, CheckCircleOutlined } from '@ant-design/icons'
-import { solicitudesApi } from '../../../services/api'
+import { solicitudesApi, archivosApi } from '../../../services/api'
 import {
   IdentificacionSection,
   SponsorSection,
@@ -12,7 +12,8 @@ import {
   BeneficiosSection,
   DesempenoSection,
   AdjuntosSection,
-  DeclaracionSection
+  DeclaracionSection,
+  ProyectoSelectorSection
 } from '../../../components/forms/sections'
 
 const { Title, Text, Paragraph } = Typography
@@ -24,13 +25,16 @@ function ProyectoNuevoForm({ tipo = 'proyecto_nuevo_interno', sessionToken, onBa
   const [submittedCode, setSubmittedCode] = useState(null)
 
   const esDoliente = Form.useWatch(['identificacion', 'es_doliente'], form)
+  const isActualizacion = tipo === 'actualizacion'
 
-  // Build dynamic steps based on whether sponsor section is needed
+  // Build dynamic steps based on whether sponsor section is needed and form type
   const steps = useMemo(() => {
+    let currentSection = 1
     const baseSteps = [
       {
         key: 'identificacion',
         title: 'Identificación',
+        sectionNumber: currentSection++,
         content: <IdentificacionSection form={form} />
       }
     ]
@@ -40,7 +44,18 @@ function ProyectoNuevoForm({ tipo = 'proyecto_nuevo_interno', sessionToken, onBa
       baseSteps.push({
         key: 'sponsor',
         title: 'Sponsor',
-        content: <SponsorSection />
+        sectionNumber: currentSection++,
+        content: <SponsorSection sectionNumber={currentSection - 1} />
+      })
+    }
+
+    // Add proyecto selector for actualizacion
+    if (isActualizacion) {
+      baseSteps.push({
+        key: 'proyecto_referencia',
+        title: 'Proyecto',
+        sectionNumber: currentSection++,
+        content: <ProyectoSelectorSection form={form} sectionNumber={currentSection - 1} tipo="actualizacion" />
       })
     }
 
@@ -48,47 +63,55 @@ function ProyectoNuevoForm({ tipo = 'proyecto_nuevo_interno', sessionToken, onBa
       {
         key: 'stakeholders',
         title: 'Partes Interesadas',
-        content: <StakeholdersSection form={form} />
+        sectionNumber: currentSection++,
+        content: <StakeholdersSection form={form} sectionNumber={currentSection - 1} />
       },
       {
         key: 'problematica',
         title: 'Problemática',
-        content: <ProblematicaSection />
+        sectionNumber: currentSection++,
+        content: <ProblematicaSection sectionNumber={currentSection - 1} />
       },
       {
         key: 'urgencia',
         title: 'Urgencia',
-        content: <UrgenciaSection tipo={tipo} />
+        sectionNumber: currentSection++,
+        content: <UrgenciaSection tipo={tipo} sectionNumber={currentSection - 1} />
       },
       {
         key: 'solucion',
         title: 'Solución',
-        content: <SolucionSection form={form} />
+        sectionNumber: currentSection++,
+        content: <SolucionSection form={form} sectionNumber={currentSection - 1} />
       },
       {
         key: 'beneficios',
         title: 'Beneficios',
-        content: <BeneficiosSection form={form} />
+        sectionNumber: currentSection++,
+        content: <BeneficiosSection form={form} sectionNumber={currentSection - 1} />
       },
       {
         key: 'desempeno',
         title: 'Desempeño',
-        content: <DesempenoSection form={form} />
+        sectionNumber: currentSection++,
+        content: <DesempenoSection form={form} sectionNumber={currentSection - 1} />
       },
       {
         key: 'adjuntos',
         title: 'Adjuntos',
-        content: <AdjuntosSection />
+        sectionNumber: currentSection++,
+        content: <AdjuntosSection sectionNumber={currentSection - 1} />
       },
       {
         key: 'declaracion',
         title: 'Declaración',
-        content: <DeclaracionSection esSponsor={esDoliente !== false} />
+        sectionNumber: currentSection++,
+        content: <DeclaracionSection esSponsor={esDoliente !== false} sectionNumber={currentSection - 1} />
       }
     )
 
     return baseSteps
-  }, [esDoliente, tipo, form])
+  }, [esDoliente, tipo, form, isActualizacion])
 
   const validateCurrentStep = async () => {
     try {
@@ -119,10 +142,15 @@ function ProyectoNuevoForm({ tipo = 'proyecto_nuevo_interno', sessionToken, onBa
           ['sponsor', 'nombre_completo'],
           ['sponsor', 'cargo'],
           ['sponsor', 'area'],
-          ['sponsor', 'correo']
+          ['sponsor', 'operacion_contrato'],
+          ['sponsor', 'correo'],
+          ['sponsor', 'cedula']
         ]
+      case 'proyecto_referencia':
+        return [['proyecto_referencia', 'proyecto_id']]
       case 'problematica':
         return [
+          ['problematica', 'titulo'],
           ['problematica', 'situacion_actual'],
           ['problematica', 'origen'],
           ['problematica', 'afectacion_operacion'],
@@ -171,11 +199,6 @@ function ProyectoNuevoForm({ tipo = 'proyecto_nuevo_interno', sessionToken, onBa
       setLoading(true)
       const values = await form.validateFields()
 
-      // Build title based on the problem description
-      const titleText = values.problematica?.situacion_actual?.substring(0, 50) ||
-                       values.urgencia?.necesidad_principal?.substring(0, 50) ||
-                       'Nueva solicitud'
-
       // Map urgencia level to prioridad
       const urgenciaToPrioridad = {
         'inmediata': 'critica',
@@ -187,11 +210,12 @@ function ProyectoNuevoForm({ tipo = 'proyecto_nuevo_interno', sessionToken, onBa
       // Map form values to API format
       const solicitudData = {
         tipo,
-        titulo: `${tipo === 'actualizacion' ? 'Actualización' : 'Proyecto'}: ${titleText}...`,
+        titulo: values.problematica?.titulo,
         prioridad: urgenciaToPrioridad[values.urgencia?.nivel] || 'media',
         solicitante_session_token: sessionToken,
         identificacion: values.identificacion,
         sponsor: esDoliente === false ? values.sponsor : null,
+        proyecto_referencia: values.proyecto_referencia,
         stakeholders: values.stakeholders,
         problematica: values.problematica,
         urgencia: values.urgencia,
@@ -203,6 +227,59 @@ function ProyectoNuevoForm({ tipo = 'proyecto_nuevo_interno', sessionToken, onBa
       }
 
       const response = await solicitudesApi.create(solicitudData)
+      const solicitudId = response.data.solicitud.id
+
+      // Upload files from each form section with their respective origin
+      let totalFilesUploaded = 0
+
+      // Upload files from problematica evidencia
+      const problematicaFiles = values.problematica?.evidencia?.filter(f => f.originFileObj) || []
+      if (problematicaFiles.length > 0) {
+        try {
+          await archivosApi.upload('solicitud', solicitudId, problematicaFiles, sessionToken, 'problematica_evidencia')
+          totalFilesUploaded += problematicaFiles.length
+        } catch (err) {
+          console.error('Error uploading problematica files:', err)
+        }
+      }
+
+      // Upload files from solucion referencias
+      const solucionRefFiles = values.solucion?.referencias?.filter(f => f.originFileObj) || []
+      if (solucionRefFiles.length > 0) {
+        try {
+          await archivosApi.upload('solicitud', solicitudId, solucionRefFiles, sessionToken, 'solucion_referencias')
+          totalFilesUploaded += solucionRefFiles.length
+        } catch (err) {
+          console.error('Error uploading solucion referencias files:', err)
+        }
+      }
+
+      // Upload files from solucion material_referencia
+      const solucionMatFiles = values.solucion?.material_referencia?.filter(f => f.originFileObj) || []
+      if (solucionMatFiles.length > 0) {
+        try {
+          await archivosApi.upload('solicitud', solicitudId, solucionMatFiles, sessionToken, 'solucion_material')
+          totalFilesUploaded += solucionMatFiles.length
+        } catch (err) {
+          console.error('Error uploading solucion material files:', err)
+        }
+      }
+
+      // Upload files from adjuntos generales
+      const adjuntosFiles = values.adjuntos?.archivos?.filter(f => f.originFileObj) || []
+      if (adjuntosFiles.length > 0) {
+        try {
+          await archivosApi.upload('solicitud', solicitudId, adjuntosFiles, sessionToken, 'adjuntos_generales')
+          totalFilesUploaded += adjuntosFiles.length
+        } catch (err) {
+          console.error('Error uploading adjuntos files:', err)
+        }
+      }
+
+      if (totalFilesUploaded > 0) {
+        message.success(`${totalFilesUploaded} archivo(s) subido(s)`)
+      }
+
       setSubmittedCode(response.data.solicitud.codigo)
       message.success('Solicitud enviada exitosamente')
       onSuccess?.(response.data.solicitud)
@@ -238,7 +315,7 @@ function ProyectoNuevoForm({ tipo = 'proyecto_nuevo_interno', sessionToken, onBa
             <Button
               key="status"
               type="primary"
-              onClick={() => window.location.href = `/consulta/buscar?codigo=${submittedCode}`}
+              onClick={() => window.location.href = `/consulta/${submittedCode}`}
             >
               Consultar Estado
             </Button>,

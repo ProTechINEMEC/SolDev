@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react'
 import {
   Card, Typography, Row, Col, Statistic, DatePicker, Space, Spin,
-  Table, Tag, Divider, Progress, message, Tabs, Select, Button
+  Table, Tag, Divider, Progress, message, Tabs, Select, Button, List, Empty,
+  Tooltip
 } from 'antd'
 import {
   FileTextOutlined, ProjectOutlined, ToolOutlined, CheckCircleOutlined,
   ClockCircleOutlined, ExclamationCircleOutlined, RiseOutlined, FallOutlined,
-  DownloadOutlined, FilePdfOutlined
+  DownloadOutlined, FilePdfOutlined, TeamOutlined, CalendarOutlined,
+  ScheduleOutlined
 } from '@ant-design/icons'
-import { reportesApi, exportApi } from '../../services/api'
+import { reportesApi, exportApi, calendarioApi } from '../../services/api'
 import dayjs from 'dayjs'
 import {
   SolicitudesByTypeChart,
@@ -54,6 +56,7 @@ function GerenciaReportes() {
   const [solicitudesData, setSolicitudesData] = useState({ solicitudes: [], stats: {}, porTipo: [] })
   const [proyectosData, setProyectosData] = useState({ proyectos: [], stats: {} })
   const [ticketsData, setTicketsData] = useState({ tickets: [], stats: {}, porCategoria: [] })
+  const [equipoCarga, setEquipoCarga] = useState([])
   const [activeTab, setActiveTab] = useState('resumen')
 
   useEffect(() => {
@@ -66,17 +69,19 @@ function GerenciaReportes() {
       const desde = dateRange[0].format('YYYY-MM-DD')
       const hasta = dateRange[1].format('YYYY-MM-DD')
 
-      const [weeklyRes, solicitudesRes, proyectosRes, ticketsRes] = await Promise.all([
+      const [weeklyRes, solicitudesRes, proyectosRes, ticketsRes, equipoRes] = await Promise.all([
         reportesApi.getSemanal().catch(() => ({ data: { reporte: null } })),
         reportesApi.getSolicitudes({ desde, hasta }),
         reportesApi.getProyectos({ desde, hasta }),
-        reportesApi.getTickets({ desde, hasta })
+        reportesApi.getTickets({ desde, hasta }),
+        calendarioApi.getEquipoCarga({ fecha_inicio: desde, fecha_fin: hasta }).catch(() => ({ data: { equipo: [] } }))
       ])
 
       setWeeklyReport(weeklyRes.data.reporte)
       setSolicitudesData(solicitudesRes.data)
       setProyectosData(proyectosRes.data)
       setTicketsData(ticketsRes.data)
+      setEquipoCarga(equipoRes.data.equipo || [])
     } catch (error) {
       console.error('Error loading reports:', error)
       message.error('Error al cargar los reportes')
@@ -732,6 +737,130 @@ function GerenciaReportes() {
     )
   }
 
+  // Equipo NT Report Tab
+  const EquipoReport = () => {
+    const proyStats = proyectosData.stats || {}
+
+    // Calculate workload metrics
+    const totalMiembros = equipoCarga.length
+    const miembrosConTareas = equipoCarga.filter(m => m.tareas?.length > 0).length
+    const miembrosDisponibles = totalMiembros - miembrosConTareas
+    const totalTareasAsignadas = equipoCarga.reduce((sum, m) => sum + (m.tareas?.length || 0), 0)
+
+    return (
+      <div>
+        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+          <Col xs={24} md={8}>
+            <Card>
+              <Statistic
+                title="Miembros del Equipo NT"
+                value={totalMiembros}
+                prefix={<TeamOutlined />}
+                valueStyle={{ color: '#D52B1E' }}
+              />
+              <div style={{ marginTop: 8 }}>
+                <Text type="secondary">
+                  {miembrosDisponibles} disponibles, {miembrosConTareas} con tareas
+                </Text>
+              </div>
+            </Card>
+          </Col>
+          <Col xs={24} md={8}>
+            <Card>
+              <Statistic
+                title="Proyectos Agendados"
+                value={(parseInt(proyStats.planificacion) || 0) + (parseInt(proyStats.en_desarrollo) || 0)}
+                prefix={<ScheduleOutlined />}
+                valueStyle={{ color: '#722ed1' }}
+              />
+              <div style={{ marginTop: 8 }}>
+                <Text type="secondary">
+                  {proyStats.en_desarrollo || 0} en desarrollo
+                </Text>
+              </div>
+            </Card>
+          </Col>
+          <Col xs={24} md={8}>
+            <Card>
+              <Statistic
+                title="Tareas Asignadas"
+                value={totalTareasAsignadas}
+                prefix={<CalendarOutlined />}
+                valueStyle={{ color: '#52c41a' }}
+              />
+              <div style={{ marginTop: 8 }}>
+                <Text type="secondary">
+                  Promedio: {totalMiembros > 0 ? (totalTareasAsignadas / totalMiembros).toFixed(1) : 0} por persona
+                </Text>
+              </div>
+            </Card>
+          </Col>
+        </Row>
+
+        <Card title={<><TeamOutlined /> Carga de Trabajo del Equipo NT</>}>
+          {equipoCarga.length === 0 ? (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description="No hay datos de carga del equipo"
+            />
+          ) : (
+            <Row gutter={[16, 16]}>
+              {equipoCarga.map(miembro => {
+                const tareasCount = miembro.tareas?.length || 0
+                const cargaNivel = tareasCount === 0 ? 'available' : tareasCount <= 2 ? 'low' : tareasCount <= 4 ? 'medium' : 'high'
+                const cargaColors = {
+                  available: '#52c41a',
+                  low: '#52c41a',
+                  medium: '#faad14',
+                  high: '#f5222d'
+                }
+                const cargaLabels = {
+                  available: 'Disponible',
+                  low: 'Carga Baja',
+                  medium: 'Carga Media',
+                  high: 'Carga Alta'
+                }
+
+                return (
+                  <Col xs={24} md={12} lg={8} key={miembro.id}>
+                    <Card
+                      size="small"
+                      title={miembro.nombre}
+                      extra={<Tag color={cargaColors[cargaNivel]}>{cargaLabels[cargaNivel]}</Tag>}
+                    >
+                      {tareasCount === 0 ? (
+                        <Text type="secondary">Sin tareas asignadas</Text>
+                      ) : (
+                        <List
+                          size="small"
+                          dataSource={miembro.tareas}
+                          renderItem={tarea => (
+                            <List.Item style={{ padding: '4px 0' }}>
+                              <Tooltip title={tarea.nombre}>
+                                <Space size={4}>
+                                  <Tag color="blue" style={{ fontSize: 10, margin: 0 }}>
+                                    {tarea.proyecto_codigo}
+                                  </Tag>
+                                  <Text ellipsis style={{ maxWidth: 150, fontSize: 12 }}>
+                                    {tarea.nombre}
+                                  </Text>
+                                </Space>
+                              </Tooltip>
+                            </List.Item>
+                          )}
+                        />
+                      )}
+                    </Card>
+                  </Col>
+                )
+              })}
+            </Row>
+          )}
+        </Card>
+      </div>
+    )
+  }
+
   if (loading) {
     return <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
   }
@@ -744,18 +873,23 @@ function GerenciaReportes() {
     },
     {
       key: 'solicitudes',
-      label: 'Solicitudes',
+      label: 'Solicitudes NT',
       children: <SolicitudesReport />
     },
     {
       key: 'proyectos',
-      label: 'Proyectos',
+      label: 'Proyectos NT',
       children: <ProyectosReport />
     },
     {
       key: 'tickets',
       label: 'Tickets TI',
       children: <TicketsReport />
+    },
+    {
+      key: 'equipo',
+      label: 'Equipo NT',
+      children: <EquipoReport />
     }
   ]
 
@@ -791,9 +925,7 @@ function GerenciaReportes() {
         </Space>
       </div>
 
-      <SummaryCards />
-
-      <Card style={{ marginTop: 16 }}>
+      <Card>
         <Tabs
           activeKey={activeTab}
           onChange={setActiveTab}

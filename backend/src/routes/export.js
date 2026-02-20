@@ -14,23 +14,26 @@ const logger = require('../utils/logger');
 const router = express.Router();
 
 /**
- * GET /api/export/solicitud/:id/pdf
+ * GET /api/export/solicitud/:codigo/pdf
  * Export a solicitud as PDF
  */
-router.get('/solicitud/:id/pdf', authenticate, async (req, res, next) => {
+router.get('/solicitud/:codigo/pdf', authenticate, async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { codigo } = req.params;
 
     // Verify access (NT and Gerencia can export)
     if (!['nuevas_tecnologias', 'gerencia'].includes(req.user.rol)) {
       throw new AppError('No autorizado para exportar solicitudes', 403);
     }
 
-    const pdfBuffer = await pdfService.generateSolicitudPDF(id);
+    // Get solicitud ID by codigo
+    const solicitudResult = await pool.query('SELECT id FROM solicitudes WHERE codigo = $1', [codigo]);
+    if (solicitudResult.rows.length === 0) {
+      throw new AppError('Solicitud no encontrada', 404);
+    }
+    const id = solicitudResult.rows[0].id;
 
-    // Get solicitud code for filename
-    const result = await pool.query('SELECT codigo FROM solicitudes WHERE id = $1', [id]);
-    const codigo = result.rows[0]?.codigo || id;
+    const pdfBuffer = await pdfService.generateSolicitudPDF(id);
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=solicitud-${codigo}.pdf`);
@@ -47,18 +50,21 @@ router.get('/solicitud/:id/pdf', authenticate, async (req, res, next) => {
 });
 
 /**
- * GET /api/export/ticket/:id/pdf
+ * GET /api/export/ticket/:codigo/pdf
  * Export a ticket as PDF
  */
-router.get('/ticket/:id/pdf', authenticate, authorize('ti', 'nuevas_tecnologias'), async (req, res, next) => {
+router.get('/ticket/:codigo/pdf', authenticate, authorize('ti', 'nuevas_tecnologias'), async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { codigo } = req.params;
+
+    // Get ticket ID by codigo
+    const ticketResult = await pool.query('SELECT id FROM tickets WHERE codigo = $1', [codigo]);
+    if (ticketResult.rows.length === 0) {
+      throw new AppError('Ticket no encontrado', 404);
+    }
+    const id = ticketResult.rows[0].id;
 
     const pdfBuffer = await pdfService.generateTicketPDF(id);
-
-    // Get ticket code for filename
-    const result = await pool.query('SELECT codigo FROM tickets WHERE id = $1', [id]);
-    const codigo = result.rows[0]?.codigo || id;
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=ticket-${codigo}.pdf`);

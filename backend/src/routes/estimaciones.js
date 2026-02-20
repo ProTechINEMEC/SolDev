@@ -28,7 +28,8 @@ const detalleExternoSchema = Joi.object({
   concepto: Joi.string().required(),
   proveedor: Joi.string().allow('', null).optional(),
   descripcion: Joi.string().allow('', null).optional(),
-  monto: Joi.number().min(0).required()
+  monto: Joi.number().min(0).required(),
+  iva: Joi.number().min(0).optional().default(0)
 });
 
 const createEstimacionSchema = Joi.object({

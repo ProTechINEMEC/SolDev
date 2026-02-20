@@ -7,6 +7,15 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
+// Helper function to get project ID by codigo
+const getProyectoIdByCodigo = async (codigo) => {
+  const result = await pool.query('SELECT id FROM proyectos WHERE codigo = $1', [codigo]);
+  if (result.rows.length === 0) {
+    throw new AppError('Proyecto no encontrado', 404);
+  }
+  return result.rows[0].id;
+};
+
 // Validation schemas
 const createTareaSchema = Joi.object({
   titulo: Joi.string().min(3).max(200).required(),
@@ -25,6 +34,30 @@ const updateProyectoSchema = Joi.object({
   fecha_fin_estimada: Joi.date().optional(),
   presupuesto_estimado: Joi.number().positive().optional(),
   datos_proyecto: Joi.object().optional()
+});
+
+// GET /api/proyectos/public - List projects for public forms (actualizacion, etc.)
+// Returns only basic info: codigo, nombre, estado - no authentication required
+router.get('/public', async (req, res, next) => {
+  try {
+    const query = `
+      SELECT
+        codigo,
+        titulo as nombre,
+        estado
+      FROM proyectos
+      WHERE estado IN ('completado', 'en_desarrollo')
+      ORDER BY titulo ASC
+    `;
+
+    const result = await pool.query(query);
+
+    res.json({
+      proyectos: result.rows
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // GET /api/proyectos - List projects
@@ -105,10 +138,10 @@ router.get('/', authenticate, async (req, res, next) => {
   }
 });
 
-// GET /api/proyectos/:id - Get single project
-router.get('/:id', authenticate, async (req, res, next) => {
+// GET /api/proyectos/:codigo - Get single project
+router.get('/:codigo', authenticate, async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { codigo } = req.params;
 
     const result = await pool.query(
       `SELECT p.*,
@@ -120,8 +153,8 @@ router.get('/:id', authenticate, async (req, res, next) => {
        FROM proyectos p
        LEFT JOIN solicitudes s ON p.solicitud_id = s.id
        LEFT JOIN usuarios u ON p.responsable_id = u.id
-       WHERE p.id = $1 OR p.codigo = $1`,
-      [id]
+       WHERE p.codigo = $1`,
+      [codigo]
     );
 
     if (result.rows.length === 0) {
@@ -170,10 +203,11 @@ router.get('/:id', authenticate, async (req, res, next) => {
   }
 });
 
-// PUT /api/proyectos/:id - Update project
-router.put('/:id', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+// PUT /api/proyectos/:codigo - Update project
+router.put('/:codigo', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { codigo } = req.params;
+    const id = await getProyectoIdByCodigo(codigo);
     const { error, value } = updateProyectoSchema.validate(req.body);
 
     if (error) {
@@ -225,10 +259,11 @@ router.put('/:id', authenticate, authorize('nuevas_tecnologias'), async (req, re
   }
 });
 
-// PUT /api/proyectos/:id/estado - Change project state
-router.put('/:id/estado', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+// PUT /api/proyectos/:codigo/estado - Change project state
+router.put('/:codigo/estado', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { codigo } = req.params;
+    const id = await getProyectoIdByCodigo(codigo);
     const { estado, comentario } = req.body;
 
     const validStates = ['planificacion', 'en_desarrollo', 'pausado', 'completado', 'cancelado'];
@@ -286,10 +321,11 @@ router.put('/:id/estado', authenticate, authorize('nuevas_tecnologias'), async (
   }
 });
 
-// GET /api/proyectos/:id/tareas - Get project tasks (Gantt data)
-router.get('/:id/tareas', authenticate, async (req, res, next) => {
+// GET /api/proyectos/:codigo/tareas - Get project tasks (Gantt data)
+router.get('/:codigo/tareas', authenticate, async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { codigo } = req.params;
+    const id = await getProyectoIdByCodigo(codigo);
 
     const result = await pool.query(
       `SELECT pt.*, u.nombre as asignado_nombre
@@ -306,20 +342,15 @@ router.get('/:id/tareas', authenticate, async (req, res, next) => {
   }
 });
 
-// POST /api/proyectos/:id/tareas - Create task
-router.post('/:id/tareas', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+// POST /api/proyectos/:codigo/tareas - Create task
+router.post('/:codigo/tareas', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { codigo } = req.params;
+    const id = await getProyectoIdByCodigo(codigo);
     const { error, value } = createTareaSchema.validate(req.body);
 
     if (error) {
       throw new AppError(error.details[0].message, 400);
-    }
-
-    // Verify project exists
-    const proyecto = await pool.query('SELECT id FROM proyectos WHERE id = $1', [id]);
-    if (proyecto.rows.length === 0) {
-      throw new AppError('Proyecto no encontrado', 404);
     }
 
     const result = await pool.query(
@@ -341,10 +372,11 @@ router.post('/:id/tareas', authenticate, authorize('nuevas_tecnologias'), async 
   }
 });
 
-// PUT /api/proyectos/:id/tareas/:tareaId - Update task
-router.put('/:id/tareas/:tareaId', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+// PUT /api/proyectos/:codigo/tareas/:tareaId - Update task
+router.put('/:codigo/tareas/:tareaId', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
   try {
-    const { id, tareaId } = req.params;
+    const { codigo, tareaId } = req.params;
+    const id = await getProyectoIdByCodigo(codigo);
     const { titulo, descripcion, fecha_inicio, fecha_fin, asignado_id, progreso, color, completada } = req.body;
 
     const result = await pool.query(
@@ -376,10 +408,11 @@ router.put('/:id/tareas/:tareaId', authenticate, authorize('nuevas_tecnologias')
   }
 });
 
-// DELETE /api/proyectos/:id/tareas/:tareaId - Delete task
-router.delete('/:id/tareas/:tareaId', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+// DELETE /api/proyectos/:codigo/tareas/:tareaId - Delete task
+router.delete('/:codigo/tareas/:tareaId', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
   try {
-    const { id, tareaId } = req.params;
+    const { codigo, tareaId } = req.params;
+    const id = await getProyectoIdByCodigo(codigo);
 
     const result = await pool.query(
       'DELETE FROM proyecto_tareas WHERE id = $1 AND proyecto_id = $2 RETURNING id',
@@ -396,10 +429,11 @@ router.delete('/:id/tareas/:tareaId', authenticate, authorize('nuevas_tecnologia
   }
 });
 
-// GET /api/proyectos/:id/miembros - Get team members
-router.get('/:id/miembros', authenticate, async (req, res, next) => {
+// GET /api/proyectos/:codigo/miembros - Get team members
+router.get('/:codigo/miembros', authenticate, async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { codigo } = req.params;
+    const id = await getProyectoIdByCodigo(codigo);
 
     const result = await pool.query(
       `SELECT pm.*, u.nombre, u.email, u.rol
@@ -415,10 +449,11 @@ router.get('/:id/miembros', authenticate, async (req, res, next) => {
   }
 });
 
-// POST /api/proyectos/:id/miembros - Add team member
-router.post('/:id/miembros', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+// POST /api/proyectos/:codigo/miembros - Add team member
+router.post('/:codigo/miembros', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { codigo } = req.params;
+    const id = await getProyectoIdByCodigo(codigo);
     const { usuario_id, rol_proyecto } = req.body;
 
     if (!usuario_id) {
@@ -451,10 +486,11 @@ router.post('/:id/miembros', authenticate, authorize('nuevas_tecnologias'), asyn
   }
 });
 
-// DELETE /api/proyectos/:id/miembros/:userId - Remove team member
-router.delete('/:id/miembros/:userId', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+// DELETE /api/proyectos/:codigo/miembros/:userId - Remove team member
+router.delete('/:codigo/miembros/:userId', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
   try {
-    const { id, userId } = req.params;
+    const { codigo, userId } = req.params;
+    const id = await getProyectoIdByCodigo(codigo);
 
     const result = await pool.query(
       'DELETE FROM proyecto_miembros WHERE proyecto_id = $1 AND usuario_id = $2 RETURNING id',

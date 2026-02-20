@@ -3,13 +3,13 @@ import { ListableInput } from '../ListableInput'
 
 const { Text } = Typography
 
-function StakeholdersSection({ form }) {
+function StakeholdersSection({ form, sectionNumber = 3 }) {
   const aplicaExternas = Form.useWatch(['stakeholders', 'aplica_externas'], form)
 
   return (
-    <Card title="3. Partes Interesadas" style={{ marginBottom: 24 }}>
+    <Card title={`${sectionNumber}. Partes Interesadas`} style={{ marginBottom: 24 }}>
       <Divider orientation="left" orientationMargin={0}>
-        <Text strong>3.1 Partes Interesadas Internas</Text>
+        <Text strong>{sectionNumber}.1 Partes Interesadas Internas</Text>
       </Divider>
 
       <ListableInput
@@ -29,7 +29,7 @@ function StakeholdersSection({ form }) {
       />
 
       <Divider orientation="left" orientationMargin={0}>
-        <Text strong>3.2 Partes Interesadas Externas</Text>
+        <Text strong>{sectionNumber}.2 Partes Interesadas Externas</Text>
       </Divider>
 
       <Form.Item

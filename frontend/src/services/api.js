@@ -64,7 +64,20 @@ export const solicitudesApi = {
   transferirTI: (id, data) => api.post(`/solicitudes/${id}/transferir-ti`, data),
   agendar: (id, data) => api.post(`/solicitudes/${id}/agendar`, data),
   solicitarReevaluacion: (id, data) => api.post(`/solicitudes/${id}/solicitar-reevaluacion`, data),
-  getReevaluaciones: (id) => api.get(`/solicitudes/${id}/reevaluaciones`)
+  getReevaluaciones: (id) => api.get(`/solicitudes/${id}/reevaluaciones`),
+  updateProyectoReferencia: (id, data) => api.patch(`/solicitudes/${id}/proyecto-referencia`, data),
+  getProyectosPublic: () => api.get('/proyectos/public'),
+  updateFormulario: (id, data) => api.patch(`/solicitudes/${id}/formulario`, data),
+  // Project workflow
+  iniciarDesarrollo: (id) => api.put(`/solicitudes/${id}/iniciar-desarrollo`),
+  pausar: (id, data) => api.put(`/solicitudes/${id}/pausar`, data),
+  reanudar: (id) => api.put(`/solicitudes/${id}/reanudar`),
+  cancelarProyecto: (id, data) => api.put(`/solicitudes/${id}/cancelar-proyecto`, data),
+  getPausas: (id) => api.get(`/solicitudes/${id}/pausas`),
+  getProgreso: (id) => api.get(`/solicitudes/${id}/progreso`),
+  updateTareaProgreso: (id, tareaId, data) => api.put(`/solicitudes/${id}/tareas/${tareaId}/progreso`, data),
+  addTareaEmergente: (id, data) => api.post(`/solicitudes/${id}/tareas-emergentes`, data),
+  checkProyectoStatus: (codigo) => api.get(`/solicitudes/proyecto/consulta/${codigo}`)
 }
 
 export const proyectosApi = {
@@ -90,7 +103,8 @@ export const ticketsApi = {
   escalar: (id, data) => api.put(`/tickets/${id}/escalar`, data),
   addComment: (id, data) => api.post(`/tickets/${id}/comentarios`, data),
   checkStatus: (codigo) => api.get(`/tickets/consulta/${codigo}`),
-  transferirNT: (id, data) => api.post(`/tickets/${id}/transferir-nt`, data)
+  transferirNT: (id, data) => api.post(`/tickets/${id}/transferir-nt`, data),
+  updateCategoria: (id, data) => api.patch(`/tickets/${id}/categoria`, data)
 }
 
 export const transferenciasApi = {
@@ -225,4 +239,58 @@ export const calendarioApi = {
   getFestivos: (params) => api.get('/calendario/festivos', { params }),
   calcularFechas: (data) => api.post('/calendario/calcular-fechas', data),
   preview: (data) => api.post('/calendario/preview', data)
+}
+
+export const archivosApi = {
+  // Upload multiple files for an entity with optional origen (form section)
+  upload: (entidadTipo, entidadId, files, sessionToken = null, origen = 'adjuntos') => {
+    const formData = new FormData()
+    formData.append('entidad_tipo', entidadTipo)
+    formData.append('entidad_id', entidadId)
+    formData.append('origen', origen)
+    if (sessionToken) {
+      formData.append('session_token', sessionToken)
+    }
+    files.forEach(file => {
+      // Handle both File objects and file list items with originFileObj
+      const fileObj = file.originFileObj || file
+      formData.append('archivos', fileObj)
+    })
+    return api.post('/archivos/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+
+  // Upload single file
+  uploadSingle: (entidadTipo, entidadId, file, sessionToken = null) => {
+    const formData = new FormData()
+    formData.append('entidad_tipo', entidadTipo)
+    formData.append('entidad_id', entidadId)
+    if (sessionToken) {
+      formData.append('session_token', sessionToken)
+    }
+    const fileObj = file.originFileObj || file
+    formData.append('archivo', fileObj)
+    return api.post('/archivos/upload-single', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+
+  // Get files for an entity
+  getByEntity: (entidadTipo, entidadId) => api.get(`/archivos/entity/${entidadTipo}/${entidadId}`),
+
+  // Get single file info
+  get: (id) => api.get(`/archivos/${id}`),
+
+  // Delete file
+  delete: (id) => api.delete(`/archivos/${id}`),
+
+  // Get download URL
+  getDownloadUrl: (id) => `${API_URL}/api/archivos/${id}/download`,
+
+  // Get preview URL
+  getPreviewUrl: (id) => `${API_URL}/api/archivos/${id}/preview`,
+
+  // Get allowed types
+  getAllowedTypes: () => api.get('/archivos/config/allowed-types')
 }

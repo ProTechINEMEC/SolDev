@@ -3,9 +3,9 @@ import { PlusOutlined, MinusCircleOutlined, UserOutlined } from '@ant-design/ico
 
 const { Text } = Typography
 
-function ResponsablesSection() {
+function ResponsablesSection({ sectionNumber = 4 }) {
   return (
-    <Card title="3. Responsable y Veedores" style={{ marginBottom: 24 }}>
+    <Card title={`${sectionNumber}. Responsable y Veedores`} style={{ marginBottom: 24 }}>
       <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
         Indique quién será el responsable de coordinar el cierre y quiénes serán los veedores del proceso.
       </Text>
@@ -14,7 +14,7 @@ function ResponsablesSection() {
         <Col xs={24} md={12}>
           <Form.Item
             name={['responsables', 'responsable_nombre']}
-            label="3.1 Responsable del cierre"
+            label={`${sectionNumber}.1 Responsable del cierre`}
             rules={[{ required: true, message: 'Ingrese el nombre del responsable' }]}
           >
             <Input prefix={<UserOutlined />} placeholder="Nombre completo del responsable" />
@@ -31,7 +31,7 @@ function ResponsablesSection() {
         </Col>
       </Row>
 
-      <Text strong style={{ display: 'block', marginBottom: 8 }}>3.2 Veedores del proceso</Text>
+      <Text strong style={{ display: 'block', marginBottom: 8 }}>{sectionNumber}.2 Veedores del proceso</Text>
       <Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 12 }}>
         Los veedores son personas que supervisarán y validarán el proceso de cierre
       </Text>

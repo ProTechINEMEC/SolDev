@@ -2,13 +2,14 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Card, Row, Col, Typography, Tag, Space, Spin, Select, Switch,
-  Tooltip, List, Badge, message, Statistic, Segmented, Table, Button,
+  Tooltip, List, Badge, message, Table, Button,
   Progress, Empty
 } from 'antd'
 import {
-  CalendarOutlined, TeamOutlined, ProjectOutlined, ToolOutlined,
+  CalendarOutlined, ProjectOutlined, ToolOutlined,
   CheckCircleOutlined, ClockCircleOutlined, FilterOutlined, EyeOutlined,
-  ExclamationCircleOutlined, RocketOutlined, ScheduleOutlined, ReloadOutlined
+  ExclamationCircleOutlined, RocketOutlined, ScheduleOutlined, ReloadOutlined,
+  FileTextOutlined
 } from '@ant-design/icons'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
@@ -21,13 +22,16 @@ dayjs.locale('es')
 
 const { Title, Text } = Typography
 
-const phaseColors = {
-  analisis: '#1890ff',
-  diseno: '#722ed1',
-  desarrollo: '#52c41a',
-  pruebas: '#faad14',
-  documentacion: '#13c2c2',
-  entrega: '#eb2f96'
+// INEMEC Brand Colors
+const INEMEC_RED = '#D52B1E'
+const INEMEC_RED_LIGHT = '#E85A50'
+
+// Colors for different entity types
+const entityColors = {
+  proyecto: INEMEC_RED,
+  tarea: INEMEC_RED_LIGHT,
+  solucionado: '#52c41a',     // Green for resolved
+  noRealizado: '#fa8c16'      // Orange for no_realizado and transferred
 }
 
 const prioridadColors = {
@@ -37,14 +41,6 @@ const prioridadColors = {
   baja: '#52c41a'
 }
 
-const estadoProyectoColors = {
-  aprobado: '#52c41a',
-  agendado: '#722ed1',
-  en_desarrollo: '#1890ff',
-  completado: '#13c2c2',
-  rechazado: '#ff4d4f'
-}
-
 function CalendarioGeneral() {
   const calendarRef = useRef(null)
   const [initialLoading, setInitialLoading] = useState(true)
@@ -52,38 +48,26 @@ function CalendarioGeneral() {
 
   // Data states
   const [proyectos, setProyectos] = useState([])
-  const [tickets, setTickets] = useState([])
-  const [equipoCarga, setEquipoCarga] = useState([])
+  const [ticketsTI, setTicketsTI] = useState([])
+  const [solicitudesNT, setSolicitudesNT] = useState([])
   const [festivos, setFestivos] = useState([])
   const [pendingApprovals, setPendingApprovals] = useState([])
 
   // Filter states
-  const [showProjects, setShowProjects] = useState(true)
-  const [showTickets, setShowTickets] = useState(true)
-  const [showTasks, setShowTasks] = useState(true)
+  const [showProyectosNT, setShowProyectosNT] = useState(true)
+  const [showTareasNT, setShowTareasNT] = useState(true)
+  const [showTicketsTI, setShowTicketsTI] = useState(true)
+  const [showSolicitudesNT, setShowSolicitudesNT] = useState(true)
   const [filterPrioridad, setFilterPrioridad] = useState(null)
-  const [viewMode, setViewMode] = useState('todos')
 
-  // Stats
-  const [stats, setStats] = useState({
-    proyectosActivos: 0,
-    proyectosAgendados: 0,
-    ticketsAbiertos: 0,
-    ticketsResueltos: 0
-  })
-
-  // Calendar view range - use wide range for data, calendar controls what's visible
+  // Calendar view range - use wide range for data
   const dateRangeRef = useRef({
     start: dayjs().subtract(1, 'month').startOf('month').format('YYYY-MM-DD'),
     end: dayjs().add(12, 'month').endOf('month').format('YYYY-MM-DD')
   })
 
-  // Track if initial load is done to prevent datesSet from reloading with narrow range
-  const initialLoadDone = useRef(false)
-
   useEffect(() => {
     loadData(dateRangeRef.current)
-    initialLoadDone.current = true
   }, [])
 
   const loadData = async (range) => {
@@ -97,7 +81,7 @@ function CalendarioGeneral() {
       const startYear = dayjs(range.start).year()
       const endYear = dayjs(range.end).year()
 
-      // Fetch pending approvals separately to handle potential errors
+      // Fetch pending approvals
       let pendingRes = { data: { solicitudes: [] } }
       try {
         pendingRes = await solicitudesApi.list({
@@ -105,21 +89,31 @@ function CalendarioGeneral() {
           tipo: 'proyecto_nuevo_interno,proyecto_nuevo_externo,actualizacion',
           limit: 50
         })
-        console.log('Pending approvals response:', pendingRes.data)
       } catch (pendingError) {
         console.error('Error fetching pending approvals:', pendingError)
       }
 
-      const [proyectosRes, equipoRes, ticketsRes, festivosRes] = await Promise.all([
+      // Fetch closed NT solicitudes (non-project types)
+      let solicitudesNTRes = { data: { solicitudes: [] } }
+      try {
+        solicitudesNTRes = await solicitudesApi.list({
+          tipo: 'reporte_fallo,cierre_servicio',
+          estado: 'resuelto,no_realizado,transferido_ti',
+          fecha_desde: range.start,
+          fecha_hasta: range.end,
+          limit: 500
+        })
+      } catch (solError) {
+        console.error('Error fetching NT solicitudes:', solError)
+      }
+
+      const [proyectosRes, ticketsRes, festivosRes] = await Promise.all([
         calendarioApi.getProyectosConTareas({
           fecha_inicio: range.start,
           fecha_fin: range.end
         }),
-        calendarioApi.getEquipoCarga({
-          fecha_inicio: range.start,
-          fecha_fin: range.end
-        }),
         ticketsApi.list({
+          estado: 'solucionado,no_realizado,transferido_nt',
           fecha_desde: range.start,
           fecha_hasta: range.end,
           limit: 500
@@ -130,30 +124,11 @@ function CalendarioGeneral() {
         })
       ])
 
-      const proyectosList = proyectosRes.data.proyectos || []
-      const ticketsList = ticketsRes.data.tickets || []
-
-      setProyectos(proyectosList)
-      setEquipoCarga(equipoRes.data.equipo || [])
-      setTickets(ticketsList)
+      setProyectos(proyectosRes.data.proyectos || [])
+      setTicketsTI(ticketsRes.data.tickets || [])
+      setSolicitudesNT(solicitudesNTRes.data.solicitudes || [])
       setFestivos(festivosRes.data.festivos || [])
       setPendingApprovals(pendingRes.data.solicitudes || [])
-
-      // Calculate stats
-      setStats({
-        proyectosActivos: proyectosList.filter(p =>
-          p.estado === 'en_desarrollo'
-        ).length,
-        proyectosAgendados: proyectosList.filter(p =>
-          ['agendado', 'aprobado'].includes(p.estado)
-        ).length,
-        ticketsAbiertos: ticketsList.filter(t =>
-          ['abierto', 'en_proceso'].includes(t.estado)
-        ).length,
-        ticketsResueltos: ticketsList.filter(t =>
-          t.estado === 'solucionado'
-        ).length
-      })
     } catch (error) {
       console.error('Error loading calendar data:', error)
       message.error('Error al cargar datos del calendario')
@@ -163,8 +138,6 @@ function CalendarioGeneral() {
   }
 
   const handleDatesSet = useCallback((dateInfo) => {
-    // Don't reload on every date change - we load a wide range initially
-    // This just updates the ref for any components that need current view range
     dateRangeRef.current = {
       start: dayjs(dateInfo.start).format('YYYY-MM-DD'),
       end: dayjs(dateInfo.end).format('YYYY-MM-DD')
@@ -175,34 +148,29 @@ function CalendarioGeneral() {
   const buildCalendarEvents = () => {
     const events = []
 
-    // Add project events
-    if (showProjects) {
+    // Add NT project events
+    if (showProyectosNT) {
       proyectos.forEach(proyecto => {
-        // Filter by priority if set
         if (filterPrioridad && proyecto.prioridad !== filterPrioridad) {
           return
         }
 
-        // Filter by view mode
-        if (viewMode === 'nt' && proyecto.tipo === 'ticket') return
-        if (viewMode === 'ti' && proyecto.tipo !== 'ticket') return
-
-        // Add main project bar
+        // Add main project bar in INEMEC red
         events.push({
           id: `project-${proyecto.id}`,
           title: `${proyecto.codigo}: ${proyecto.titulo}`,
           start: proyecto.fecha_inicio_programada,
           end: dayjs(proyecto.fecha_fin_programada).add(1, 'day').format('YYYY-MM-DD'),
           allDay: true,
-          backgroundColor: estadoProyectoColors[proyecto.estado] || prioridadColors[proyecto.prioridad] || '#1890ff',
-          borderColor: estadoProyectoColors[proyecto.estado] || prioridadColors[proyecto.prioridad] || '#1890ff',
+          backgroundColor: INEMEC_RED,
+          borderColor: INEMEC_RED,
           textColor: '#fff',
           display: 'block',
           extendedProps: { type: 'project', proyecto }
         })
 
-        // Add task events
-        if (showTasks) {
+        // Add task events in lighter red
+        if (showTareasNT) {
           proyecto.tareas?.forEach(tarea => {
             events.push({
               id: `task-${proyecto.id}-${tarea.id}`,
@@ -210,7 +178,7 @@ function CalendarioGeneral() {
               start: tarea.fecha_inicio,
               end: dayjs(tarea.fecha_fin).add(1, 'day').format('YYYY-MM-DD'),
               allDay: true,
-              backgroundColor: phaseColors[tarea.fase] || '#d9d9d9',
+              backgroundColor: INEMEC_RED_LIGHT,
               borderColor: 'transparent',
               textColor: '#fff',
               display: 'block',
@@ -221,35 +189,56 @@ function CalendarioGeneral() {
       })
     }
 
-    // Add ticket events (resolved tickets as milestones)
-    if (showTickets && (viewMode === 'todos' || viewMode === 'ti')) {
-      tickets.forEach(ticket => {
+    // Add TI ticket events (only closed/transferred tickets)
+    if (showTicketsTI) {
+      ticketsTI.forEach(ticket => {
         if (filterPrioridad && ticket.prioridad !== filterPrioridad) {
           return
         }
 
-        // Show resolved tickets on resolution date, open tickets on creation date
-        const ticketDate = ticket.estado === 'solucionado' && ticket.fecha_solucion
-          ? ticket.fecha_solucion
-          : ticket.creado_en
-
-        const color = ticket.estado === 'solucionado'
-          ? '#52c41a'
-          : ticket.estado === 'en_proceso'
-          ? '#faad14'
-          : '#ff4d4f'
+        // Show on closure date
+        const closureDate = ticket.actualizado_en || ticket.creado_en
+        const isSuccess = ticket.estado === 'solucionado'
+        const color = isSuccess ? entityColors.solucionado : entityColors.noRealizado
 
         events.push({
           id: `ticket-${ticket.id}`,
-          title: `[TI] ${ticket.codigo}: ${ticket.titulo}`,
-          start: dayjs(ticketDate).format('YYYY-MM-DD'),
-          end: dayjs(ticketDate).add(1, 'day').format('YYYY-MM-DD'),
+          title: `${ticket.codigo}: ${ticket.titulo}`,
+          start: dayjs(closureDate).format('YYYY-MM-DD'),
+          end: dayjs(closureDate).add(1, 'day').format('YYYY-MM-DD'),
           allDay: true,
           backgroundColor: color,
           borderColor: color,
           textColor: '#fff',
           display: 'block',
           extendedProps: { type: 'ticket', ticket }
+        })
+      })
+    }
+
+    // Add NT solicitudes events (only closed)
+    if (showSolicitudesNT) {
+      solicitudesNT.forEach(solicitud => {
+        if (filterPrioridad && solicitud.prioridad !== filterPrioridad) {
+          return
+        }
+
+        // Show on closure date
+        const closureDate = solicitud.actualizado_en || solicitud.creado_en
+        const isSuccess = solicitud.estado === 'resuelto'
+        const color = isSuccess ? entityColors.solucionado : entityColors.noRealizado
+
+        events.push({
+          id: `solicitud-${solicitud.id}`,
+          title: `${solicitud.codigo}: ${solicitud.titulo}`,
+          start: dayjs(closureDate).format('YYYY-MM-DD'),
+          end: dayjs(closureDate).add(1, 'day').format('YYYY-MM-DD'),
+          allDay: true,
+          backgroundColor: color,
+          borderColor: color,
+          textColor: '#fff',
+          display: 'block',
+          extendedProps: { type: 'solicitud', solicitud }
         })
       })
     }
@@ -276,13 +265,15 @@ function CalendarioGeneral() {
     const { extendedProps } = eventInfo.event
 
     if (extendedProps.type === 'ticket') {
+      const estadoLabel = extendedProps.ticket.estado === 'solucionado' ? 'Solucionado' :
+                          extendedProps.ticket.estado === 'transferido_nt' ? 'Transferido a NT' : 'No Realizado'
       return (
         <Tooltip title={
           <div>
             <div><strong>{extendedProps.ticket.codigo}</strong></div>
             <div>{extendedProps.ticket.titulo}</div>
-            <div>Estado: {extendedProps.ticket.estado}</div>
-            <div>Prioridad: {extendedProps.ticket.prioridad}</div>
+            <div>Estado: {estadoLabel}</div>
+            <div>Cerrado: {dayjs(extendedProps.ticket.actualizado_en).format('DD/MM/YYYY')}</div>
           </div>
         }>
           <div style={{
@@ -293,6 +284,32 @@ function CalendarioGeneral() {
             fontSize: 11
           }}>
             <ToolOutlined style={{ marginRight: 4 }} />
+            {eventInfo.event.title}
+          </div>
+        </Tooltip>
+      )
+    }
+
+    if (extendedProps.type === 'solicitud') {
+      return (
+        <Tooltip title={
+          <div>
+            <div><strong>{extendedProps.solicitud.codigo}</strong></div>
+            <div>{extendedProps.solicitud.titulo}</div>
+            <div>Tipo: {extendedProps.solicitud.tipo}</div>
+            <div>Estado: {extendedProps.solicitud.estado === 'resuelto' ? 'Resuelto' :
+                         extendedProps.solicitud.estado === 'no_realizado' ? 'No Realizado' : 'Transferido'}</div>
+            <div>Cerrado: {dayjs(extendedProps.solicitud.actualizado_en).format('DD/MM/YYYY')}</div>
+          </div>
+        }>
+          <div style={{
+            padding: '2px 4px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            fontSize: 11
+          }}>
+            <FileTextOutlined style={{ marginRight: 4 }} />
             {eventInfo.event.title}
           </div>
         </Tooltip>
@@ -356,13 +373,13 @@ function CalendarioGeneral() {
 
   // Force refresh data
   const handleRefresh = () => {
-    lastLoadedRange.current = null // Reset to force reload
+    lastLoadedRange.current = null
     setInitialLoading(true)
     loadData(dateRangeRef.current)
   }
 
   // Derived data for sections
-  const projectsInDevelopment = proyectos.filter(p => p.estado === 'en_desarrollo')
+  const projectsInDevelopment = proyectos.filter(p => p.estado === 'en_desarrollo' || p.estado === 'pausado')
   const scheduledProjects = proyectos.filter(p => p.estado === 'agendado')
 
   return (
@@ -390,48 +407,6 @@ function CalendarioGeneral() {
         </div>
       ) : (
         <Row gutter={[16, 16]}>
-          {/* Stats Row */}
-          <Col span={24}>
-            <Row gutter={16}>
-              <Col xs={12} sm={6}>
-                <Card size="small">
-                  <Statistic
-                    title="Proyectos Activos"
-                    value={stats.proyectosActivos}
-                    prefix={<ProjectOutlined style={{ color: '#1890ff' }} />}
-                  />
-                </Card>
-              </Col>
-              <Col xs={12} sm={6}>
-                <Card size="small">
-                  <Statistic
-                    title="Proyectos Agendados"
-                    value={stats.proyectosAgendados}
-                    prefix={<ClockCircleOutlined style={{ color: '#722ed1' }} />}
-                  />
-                </Card>
-              </Col>
-              <Col xs={12} sm={6}>
-                <Card size="small">
-                  <Statistic
-                    title="Tickets Abiertos"
-                    value={stats.ticketsAbiertos}
-                    prefix={<ToolOutlined style={{ color: '#fa8c16' }} />}
-                  />
-                </Card>
-              </Col>
-              <Col xs={12} sm={6}>
-                <Card size="small">
-                  <Statistic
-                    title="Tickets Resueltos"
-                    value={stats.ticketsResueltos}
-                    prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
-                  />
-                </Card>
-              </Col>
-            </Row>
-          </Col>
-
           {/* Calendar Column */}
           <Col xs={24} lg={18}>
             <Card
@@ -440,19 +415,6 @@ function CalendarioGeneral() {
                 <Space>
                   <CalendarOutlined />
                   <span>Vista de Calendario</span>
-                </Space>
-              }
-              extra={
-                <Space>
-                  <Segmented
-                    value={viewMode}
-                    onChange={setViewMode}
-                    options={[
-                      { label: 'Todos', value: 'todos' },
-                      { label: 'NT', value: 'nt' },
-                      { label: 'TI', value: 'ti' }
-                    ]}
-                  />
                 </Space>
               }
             >
@@ -480,7 +442,7 @@ function CalendarioGeneral() {
               />
             </Card>
 
-            {/* Pending Approvals */}
+            {/* Pending Approvals - Fixed table */}
             <Card
               size="small"
               title={
@@ -500,13 +462,15 @@ function CalendarioGeneral() {
                   rowKey="id"
                   size="small"
                   pagination={false}
+                  scroll={{ x: 500 }}
                   columns={[
                     {
                       title: 'Código',
                       dataIndex: 'codigo',
                       width: 120,
+                      fixed: 'left',
                       render: (codigo, record) => (
-                        <Link to={`/gerencia/aprobaciones/${record.id}`}>
+                        <Link to={`/gerencia/aprobaciones/${record.codigo}`}>
                           <Text strong style={{ color: '#1890ff' }}>{codigo}</Text>
                         </Link>
                       )
@@ -519,28 +483,15 @@ function CalendarioGeneral() {
                     {
                       title: 'Prioridad',
                       dataIndex: 'prioridad',
-                      width: 90,
+                      width: 100,
                       render: (p) => <Tag color={prioridadColors[p]}>{p?.toUpperCase()}</Tag>
                     },
                     {
-                      title: 'Esperando',
-                      dataIndex: 'creado_en',
-                      width: 80,
-                      render: (d) => {
-                        const days = dayjs().diff(dayjs(d), 'day')
-                        return (
-                          <Badge
-                            count={`${days}d`}
-                            style={{ backgroundColor: days > 7 ? '#ff4d4f' : days > 3 ? '#faad14' : '#52c41a' }}
-                          />
-                        )
-                      }
-                    },
-                    {
-                      title: '',
-                      width: 80,
+                      title: 'Acción',
+                      width: 100,
+                      fixed: 'right',
                       render: (_, record) => (
-                        <Link to={`/gerencia/aprobaciones/${record.id}`}>
+                        <Link to={`/gerencia/aprobaciones/${record.codigo}`}>
                           <Button type="primary" size="small" icon={<EyeOutlined />}>
                             Revisar
                           </Button>
@@ -557,11 +508,11 @@ function CalendarioGeneral() {
               size="small"
               title={
                 <Space>
-                  <RocketOutlined style={{ color: '#1890ff' }} />
+                  <RocketOutlined style={{ color: INEMEC_RED }} />
                   <span>Proyectos en Desarrollo</span>
                   <Badge
                     count={projectsInDevelopment.length}
-                    style={{ backgroundColor: '#1890ff' }}
+                    style={{ backgroundColor: INEMEC_RED }}
                   />
                 </Space>
               }
@@ -575,52 +526,70 @@ function CalendarioGeneral() {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                   {projectsInDevelopment.map(proyecto => {
-                      // Calculate completion percentage based on tasks progress or time elapsed
                       const totalTareas = proyecto.tareas?.length || 0
 
-                      // Calculate average progress from all tasks
-                      let porcentaje = 0
+                      // Calculate practical progress (weighted average by duration)
+                      let progresoPractico = 0
                       if (totalTareas > 0) {
-                        const totalProgreso = proyecto.tareas.reduce((sum, t) => sum + (t.progreso || 0), 0)
-                        porcentaje = Math.round(totalProgreso / totalTareas)
+                        const totalPesoProgreso = proyecto.tareas.reduce((sum, t) =>
+                          sum + ((t.progreso || 0) * (t.duracion_dias || t.duracion || 1)), 0)
+                        const totalPeso = proyecto.tareas.reduce((sum, t) =>
+                          sum + (t.duracion_dias || t.duracion || 1), 0)
+                        if (totalPeso > 0) {
+                          progresoPractico = Math.round(totalPesoProgreso / totalPeso)
+                        }
+                      }
+
+                      // Calculate theoretical progress (days in development / planned days)
+                      let progresoTeorico = 0
+                      if (proyecto.fecha_inicio_desarrollo && proyecto.fecha_inicio_programada && proyecto.fecha_fin_programada) {
+                        const diasPlanificados = dayjs(proyecto.fecha_fin_programada).diff(dayjs(proyecto.fecha_inicio_programada), 'day')
+                        const diasPausados = proyecto.dias_pausados_total || 0
+                        const diasEnDesarrollo = Math.max(0, dayjs().diff(dayjs(proyecto.fecha_inicio_desarrollo), 'day') - diasPausados)
+                        if (diasPlanificados > 0) {
+                          progresoTeorico = Math.min(100, Math.round((diasEnDesarrollo / diasPlanificados) * 100))
+                        }
                       } else if (proyecto.fecha_inicio_programada && proyecto.fecha_fin_programada) {
+                        // Fallback for projects without inicio_desarrollo
                         const inicio = dayjs(proyecto.fecha_inicio_programada)
                         const fin = dayjs(proyecto.fecha_fin_programada)
                         const hoy = dayjs()
                         const totalDias = fin.diff(inicio, 'day')
                         const diasTranscurridos = hoy.diff(inicio, 'day')
                         if (totalDias > 0) {
-                          porcentaje = Math.min(100, Math.max(0, Math.round((diasTranscurridos / totalDias) * 100)))
+                          progresoTeorico = Math.min(100, Math.max(0, Math.round((diasTranscurridos / totalDias) * 100)))
                         }
                       }
 
-                      // Days until deadline
                       const diasRestantes = proyecto.fecha_fin_programada
                         ? dayjs(proyecto.fecha_fin_programada).diff(dayjs(), 'day')
                         : null
-
                       const isOverdue = diasRestantes !== null && diasRestantes < 0
                       const isUrgent = diasRestantes !== null && diasRestantes >= 0 && diasRestantes <= 7
+                      const isPaused = proyecto.estado === 'pausado'
 
                       return (
                         <Card
                           key={proyecto.id}
                           size="small"
                           style={{
-                            backgroundColor: isOverdue ? '#fff2f0' : isUrgent ? '#fffbe6' : '#fafafa',
-                            border: isOverdue ? '1px solid #ffccc7' : isUrgent ? '1px solid #ffe58f' : '1px solid #f0f0f0'
+                            backgroundColor: isPaused ? '#fffbe6' : isOverdue ? '#fff2f0' : isUrgent ? '#fffbe6' : '#fafafa',
+                            border: isPaused ? '1px solid #ffe58f' : isOverdue ? '1px solid #ffccc7' : isUrgent ? '1px solid #ffe58f' : '1px solid #f0f0f0'
                           }}
                         >
                           <Row gutter={[16, 8]}>
                             <Col span={24}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                 <div>
-                                  <Link to={`/nt/proyectos/${proyecto.id}`}>
-                                    <Text strong style={{ color: '#1890ff', fontSize: 14 }}>
+                                  <Link to={`/nt/proyectos/${proyecto.codigo}`}>
+                                    <Text strong style={{ color: INEMEC_RED, fontSize: 14 }}>
                                       {proyecto.codigo}
                                     </Text>
                                   </Link>
                                   <Text style={{ marginLeft: 8 }}>{proyecto.titulo}</Text>
+                                  {isPaused && (
+                                    <Tag color="warning" style={{ marginLeft: 8 }}>PAUSADO</Tag>
+                                  )}
                                 </div>
                                 <Tag color={prioridadColors[proyecto.prioridad]}>
                                   {proyecto.prioridad?.toUpperCase()}
@@ -628,18 +597,40 @@ function CalendarioGeneral() {
                               </div>
                             </Col>
 
+                            {/* Two progress bars */}
                             <Col span={16}>
-                              <div style={{ marginBottom: 4 }}>
-                                <Text type="secondary" style={{ fontSize: 12 }}>
-                                  Progreso {totalTareas > 0 ? `(${totalTareas} tareas)` : '(por tiempo)'}
-                                </Text>
-                              </div>
-                              <Progress
-                                percent={porcentaje}
-                                size="small"
-                                status={isOverdue ? 'exception' : porcentaje === 100 ? 'success' : 'active'}
-                                strokeColor={isOverdue ? '#ff4d4f' : isUrgent ? '#faad14' : '#1890ff'}
-                              />
+                              <Row gutter={[0, 4]}>
+                                <Col span={24}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <Tooltip title="Días en desarrollo / Días planificados">
+                                      <Text type="secondary" style={{ fontSize: 11, minWidth: 55 }}>Teórico</Text>
+                                    </Tooltip>
+                                    <Progress
+                                      percent={progresoTeorico}
+                                      size="small"
+                                      showInfo={false}
+                                      strokeColor="#8c8c8c"
+                                      style={{ flex: 1, margin: 0 }}
+                                    />
+                                    <Text style={{ fontSize: 11, minWidth: 32, textAlign: 'right' }}>{progresoTeorico}%</Text>
+                                  </div>
+                                </Col>
+                                <Col span={24}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <Tooltip title="Promedio ponderado de progreso de tareas">
+                                      <Text type="secondary" style={{ fontSize: 11, minWidth: 55 }}>Práctico</Text>
+                                    </Tooltip>
+                                    <Progress
+                                      percent={progresoPractico}
+                                      size="small"
+                                      showInfo={false}
+                                      strokeColor={isOverdue ? '#ff4d4f' : INEMEC_RED}
+                                      style={{ flex: 1, margin: 0 }}
+                                    />
+                                    <Text style={{ fontSize: 11, minWidth: 32, textAlign: 'right' }}>{progresoPractico}%</Text>
+                                  </div>
+                                </Col>
+                              </Row>
                             </Col>
 
                             <Col span={8} style={{ textAlign: 'right' }}>
@@ -718,7 +709,7 @@ function CalendarioGeneral() {
                       >
                         <div style={{ width: '100%' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                            <Link to={`/nt/proyectos/${proyecto.id}`}>
+                            <Link to={`/nt/proyectos/${proyecto.codigo}`}>
                               <Text strong style={{ color: '#722ed1' }}>{proyecto.codigo}</Text>
                             </Link>
                             <Tag color={prioridadColors[proyecto.prioridad]} style={{ margin: 0 }}>
@@ -762,7 +753,7 @@ function CalendarioGeneral() {
           <Col xs={24} lg={6}>
             {/* Filters */}
             <Card size="small" title={<><FilterOutlined /> Filtros</>} style={{ marginBottom: 16 }}>
-              <Space direction="vertical" style={{ width: '100%' }}>
+              <Space direction="vertical" style={{ width: '100%' }} size="middle">
                 <div>
                   <Text type="secondary" style={{ fontSize: 12 }}>Prioridad:</Text>
                   <Select
@@ -787,91 +778,71 @@ function CalendarioGeneral() {
                   </Select>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text>Mostrar Proyectos</Text>
-                  <Switch checked={showProjects} onChange={setShowProjects} />
+                {/* Proyectos NT with tasks dropdown */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <Text>Mostrar Proyectos de NT</Text>
+                    <Switch checked={showProyectosNT} onChange={setShowProyectosNT} />
+                  </div>
+                  {showProyectosNT && (
+                    <Select
+                      style={{ width: '100%' }}
+                      value={showTareasNT ? 'con_tareas' : 'sin_tareas'}
+                      onChange={(val) => setShowTareasNT(val === 'con_tareas')}
+                    >
+                      <Select.Option value="con_tareas">Con tareas</Select.Option>
+                      <Select.Option value="sin_tareas">Sin tareas</Select.Option>
+                    </Select>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text>Mostrar Tareas</Text>
-                  <Switch checked={showTasks} onChange={setShowTasks} disabled={!showProjects} />
+                  <Text>Solicitudes de NT</Text>
+                  <Switch checked={showSolicitudesNT} onChange={setShowSolicitudesNT} />
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text>Mostrar Tickets TI</Text>
-                  <Switch checked={showTickets} onChange={setShowTickets} />
+                  <Text>Tickets TI</Text>
+                  <Switch checked={showTicketsTI} onChange={setShowTicketsTI} />
                 </div>
               </Space>
             </Card>
 
             {/* Legend */}
-            <Card size="small" title="Leyenda" style={{ marginBottom: 16 }}>
+            <Card size="small" title="Leyenda">
               <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                <Text strong style={{ fontSize: 12 }}>Estados de Proyecto:</Text>
+                <Text strong style={{ fontSize: 12 }}>Proyectos NT:</Text>
                 <Space wrap>
-                  <Tag color="#52c41a">Aprobado</Tag>
-                  <Tag color="#722ed1">Agendado</Tag>
-                  <Tag color="#1890ff">En Desarrollo</Tag>
-                  <Tag color="#13c2c2">Completado</Tag>
+                  <Space size={4}>
+                    <div style={{ width: 14, height: 14, backgroundColor: INEMEC_RED, borderRadius: 2 }} />
+                    <Text style={{ fontSize: 11 }}>Proyecto</Text>
+                  </Space>
+                  <Space size={4}>
+                    <div style={{ width: 14, height: 14, backgroundColor: INEMEC_RED_LIGHT, borderRadius: 2 }} />
+                    <Text style={{ fontSize: 11 }}>Tarea</Text>
+                  </Space>
                 </Space>
 
-                <Text strong style={{ fontSize: 12, marginTop: 8 }}>Fases de Tareas:</Text>
+                <Text strong style={{ fontSize: 12, marginTop: 8 }}>Tickets TI / Solicitudes NT (cerrados):</Text>
                 <Space wrap>
-                  <Tag color="#1890ff">Analisis</Tag>
-                  <Tag color="#722ed1">Diseno</Tag>
-                  <Tag color="#52c41a">Desarrollo</Tag>
-                  <Tag color="#faad14">Pruebas</Tag>
-                  <Tag color="#13c2c2">Documentacion</Tag>
-                  <Tag color="#eb2f96">Entrega</Tag>
+                  <Space size={4}>
+                    <div style={{ width: 14, height: 14, backgroundColor: entityColors.solucionado, borderRadius: 2 }} />
+                    <Text style={{ fontSize: 11 }}>Solucionado/Resuelto</Text>
+                  </Space>
+                  <Space size={4}>
+                    <div style={{ width: 14, height: 14, backgroundColor: entityColors.noRealizado, borderRadius: 2 }} />
+                    <Text style={{ fontSize: 11 }}>No Realizado/Transferido</Text>
+                  </Space>
                 </Space>
 
-                <Text strong style={{ fontSize: 12, marginTop: 8 }}>Tickets TI:</Text>
+                <Text strong style={{ fontSize: 12, marginTop: 8 }}>Otros:</Text>
                 <Space wrap>
-                  <Tag color="#ff4d4f">Abierto</Tag>
-                  <Tag color="#faad14">En Proceso</Tag>
-                  <Tag color="#52c41a">Solucionado</Tag>
+                  <Space size={4}>
+                    <div style={{ width: 14, height: 14, backgroundColor: '#ff4d4f33', border: '1px solid #ff4d4f', borderRadius: 2 }} />
+                    <Text style={{ fontSize: 11 }}>Festivo</Text>
+                  </Space>
                 </Space>
               </Space>
-            </Card>
-
-            {/* Team Workload */}
-            <Card size="small" title={<><TeamOutlined /> Carga del Equipo NT</>}>
-              <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-                {equipoCarga.length === 0 ? (
-                  <Text type="secondary">No hay miembros del equipo</Text>
-                ) : (
-                  <List
-                    size="small"
-                    dataSource={equipoCarga}
-                    renderItem={miembro => (
-                      <List.Item style={{ padding: '8px 0' }}>
-                        <List.Item.Meta
-                          title={<Text style={{ fontSize: 13 }}>{miembro.nombre}</Text>}
-                          description={
-                            miembro.tareas.length === 0
-                              ? <Tag color="green" style={{ fontSize: 10 }}>Disponible</Tag>
-                              : <Space wrap size={4}>
-                                  {miembro.tareas.slice(0, 2).map(t => (
-                                    <Tooltip
-                                      key={t.id}
-                                      title={`${t.proyecto_codigo}: ${t.nombre}`}
-                                    >
-                                      <Tag color="blue" style={{ fontSize: 10, margin: 0 }}>
-                                        {t.proyecto_codigo}
-                                      </Tag>
-                                    </Tooltip>
-                                  ))}
-                                  {miembro.tareas.length > 2 && (
-                                    <Tag style={{ fontSize: 10, margin: 0 }}>+{miembro.tareas.length - 2}</Tag>
-                                  )}
-                                </Space>
-                          }
-                        />
-                      </List.Item>
-                    )}
-                  />
-                )}
-              </div>
             </Card>
           </Col>
         </Row>

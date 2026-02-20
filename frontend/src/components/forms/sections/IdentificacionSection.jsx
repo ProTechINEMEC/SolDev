@@ -6,7 +6,7 @@ import { AREAS, OPERACIONES_CONTRATOS, flattenAreas } from '../../../config/form
 
 const { Text } = Typography
 
-function IdentificacionSection({ form }) {
+function IdentificacionSection({ form, showSponsorQuestion = true }) {
   const [areas, setAreas] = useState([])
   const [operaciones, setOperaciones] = useState([])
   const [loading, setLoading] = useState(true)
@@ -150,21 +150,25 @@ function IdentificacionSection({ form }) {
         </Col>
       </Row>
 
-      <Divider orientation="left" orientationMargin={0}>
-        <Text strong>1.2 Rol dentro del Proyecto</Text>
-      </Divider>
+      {showSponsorQuestion && (
+        <>
+          <Divider orientation="left" orientationMargin={0}>
+            <Text strong>1.2 Rol dentro del Proyecto</Text>
+          </Divider>
 
-      <Form.Item
-        name={['identificacion', 'es_doliente']}
-        label="¿Es usted el doliente/sponsor del proyecto?"
-        rules={[{ required: true, message: 'Seleccione una opción' }]}
-        extra="El doliente/sponsor es la persona responsable de impulsar y dar seguimiento al proyecto"
-      >
-        <Radio.Group>
-          <Radio value={true}>Sí, soy el doliente/sponsor</Radio>
-          <Radio value={false}>No, otra persona es el doliente</Radio>
-        </Radio.Group>
-      </Form.Item>
+          <Form.Item
+            name={['identificacion', 'es_doliente']}
+            label="¿Es usted el doliente/sponsor del proyecto?"
+            rules={[{ required: true, message: 'Seleccione una opción' }]}
+            extra="El doliente/sponsor es la persona responsable de impulsar y dar seguimiento al proyecto"
+          >
+            <Radio.Group>
+              <Radio value={true}>Sí, soy el doliente/sponsor</Radio>
+              <Radio value={false}>No, otra persona es el doliente</Radio>
+            </Radio.Group>
+          </Form.Item>
+        </>
+      )}
     </Card>
   )
 }

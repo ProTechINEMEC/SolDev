@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Form, Steps, Button, Space, message, Result, Typography, Card } from 'antd'
 import { ArrowLeftOutlined, ArrowRightOutlined, SendOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import { solicitudesApi } from '../../../services/api'
 import {
   IdentificacionSection,
+  SponsorSection,
+  ProyectoSelectorSection,
   RazonamientoSection,
   ResponsablesSection,
   ConfirmacionCierreSection
@@ -17,28 +19,62 @@ function CierreServicioForm({ sessionToken, onBack, onSuccess }) {
   const [loading, setLoading] = useState(false)
   const [submittedCode, setSubmittedCode] = useState(null)
 
-  const steps = [
-    {
-      title: 'Identificación',
-      content: <IdentificacionSection form={form} />
-    },
-    {
-      title: 'Razonamiento',
-      content: <RazonamientoSection />
-    },
-    {
-      title: 'Responsables',
-      content: <ResponsablesSection />
-    },
-    {
-      title: 'Confirmación',
-      content: <ConfirmacionCierreSection />
+  const esDoliente = Form.useWatch(['identificacion', 'es_doliente'], form)
+
+  const steps = useMemo(() => {
+    let currentSection = 1
+    const baseSteps = [
+      {
+        key: 'identificacion',
+        title: 'Identificación',
+        sectionNumber: currentSection++,
+        content: <IdentificacionSection form={form} />
+      }
+    ]
+
+    // Add sponsor section if requester is not the sponsor
+    if (esDoliente === false) {
+      baseSteps.push({
+        key: 'sponsor',
+        title: 'Sponsor',
+        sectionNumber: currentSection++,
+        content: <SponsorSection sectionNumber={currentSection - 1} />
+      })
     }
-  ]
+
+    baseSteps.push(
+      {
+        key: 'proyecto_referencia',
+        title: 'Servicio',
+        sectionNumber: currentSection++,
+        content: <ProyectoSelectorSection form={form} sectionNumber={currentSection - 1} tipo="cierre_servicio" />
+      },
+      {
+        key: 'razonamiento',
+        title: 'Razonamiento',
+        sectionNumber: currentSection++,
+        content: <RazonamientoSection sectionNumber={currentSection - 1} />
+      },
+      {
+        key: 'responsables',
+        title: 'Responsables',
+        sectionNumber: currentSection++,
+        content: <ResponsablesSection sectionNumber={currentSection - 1} />
+      },
+      {
+        key: 'confirmacion',
+        title: 'Confirmación',
+        sectionNumber: currentSection++,
+        content: <ConfirmacionCierreSection sectionNumber={currentSection - 1} />
+      }
+    )
+
+    return baseSteps
+  }, [form, esDoliente])
 
   const validateCurrentStep = async () => {
     try {
-      const fieldsToValidate = getFieldsForStep(currentStep)
+      const fieldsToValidate = getFieldsForStep(steps[currentStep]?.key)
       await form.validateFields(fieldsToValidate)
       return true
     } catch (error) {
@@ -46,9 +82,9 @@ function CierreServicioForm({ sessionToken, onBack, onSuccess }) {
     }
   }
 
-  const getFieldsForStep = (step) => {
-    switch (step) {
-      case 0:
+  const getFieldsForStep = (stepKey) => {
+    switch (stepKey) {
+      case 'identificacion':
         return [
           ['identificacion', 'nombre_completo'],
           ['identificacion', 'cargo'],
@@ -58,14 +94,25 @@ function CierreServicioForm({ sessionToken, onBack, onSuccess }) {
           ['identificacion', 'cedula'],
           ['identificacion', 'es_doliente']
         ]
-      case 1:
-        return [['razonamiento', 'descripcion']]
-      case 2:
+      case 'sponsor':
+        return [
+          ['sponsor', 'nombre_completo'],
+          ['sponsor', 'cargo'],
+          ['sponsor', 'area'],
+          ['sponsor', 'operacion_contrato'],
+          ['sponsor', 'correo'],
+          ['sponsor', 'cedula']
+        ]
+      case 'proyecto_referencia':
+        return [['proyecto_referencia', 'proyecto_id']]
+      case 'razonamiento':
+        return [['razonamiento', 'titulo'], ['razonamiento', 'descripcion']]
+      case 'responsables':
         return [
           ['responsables', 'responsable_nombre'],
           ['responsables', 'responsable_cargo']
         ]
-      case 3:
+      case 'confirmacion':
         return [['confirmacion', 'confirmo_cierre']]
       default:
         return []
@@ -94,10 +141,12 @@ function CierreServicioForm({ sessionToken, onBack, onSuccess }) {
       // Map form values to API format
       const solicitudData = {
         tipo: 'cierre_servicio',
-        titulo: `Cierre: ${values.razonamiento?.descripcion?.substring(0, 50)}...`,
+        titulo: values.razonamiento?.titulo,
         prioridad: 'media',
         solicitante_session_token: sessionToken,
         identificacion: values.identificacion,
+        sponsor: esDoliente === false ? values.sponsor : null,
+        proyecto_referencia: values.proyecto_referencia,
         razonamiento: values.razonamiento,
         responsables: values.responsables,
         confirmacion: values.confirmacion?.confirmo_cierre
@@ -136,7 +185,7 @@ function CierreServicioForm({ sessionToken, onBack, onSuccess }) {
             <Button
               key="status"
               type="primary"
-              onClick={() => window.location.href = `/consulta/buscar?codigo=${submittedCode}`}
+              onClick={() => window.location.href = `/consulta/${submittedCode}`}
             >
               Consultar Estado
             </Button>,
@@ -161,10 +210,15 @@ function CierreServicioForm({ sessionToken, onBack, onSuccess }) {
         form={form}
         layout="vertical"
         scrollToFirstError
+        initialValues={{
+          identificacion: {
+            es_doliente: true
+          }
+        }}
       >
         {/* Render all steps but only show current one - preserves form values */}
         {steps.map((step, index) => (
-          <div key={index} style={{ display: index === currentStep ? 'block' : 'none' }}>
+          <div key={step.key} style={{ display: index === currentStep ? 'block' : 'none' }}>
             {step.content}
           </div>
         ))}

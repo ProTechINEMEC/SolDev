@@ -7,7 +7,7 @@ import {
 import {
   ArrowLeftOutlined, SendOutlined, CheckOutlined, CloseOutlined,
   ExclamationCircleOutlined, UserSwitchOutlined, PlayCircleOutlined,
-  SwapOutlined, StopOutlined, FilePdfOutlined
+  SwapOutlined, StopOutlined, FilePdfOutlined, DownloadOutlined, FileOutlined
 } from '@ant-design/icons'
 import { ticketsApi, usuariosApi, transferenciasApi, exportApi } from '../../services/api'
 import dayjs from 'dayjs'
@@ -54,12 +54,12 @@ const prioridadColors = {
 }
 
 function TITicketDetail() {
-  const { id } = useParams()
+  const { codigo } = useParams()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [tiUsers, setTiUsers] = useState([])
   const [comment, setComment] = useState('')
-  const [isInternal, setIsInternal] = useState(false)
+  const [comentarioTipo, setComentarioTipo] = useState('interno')
   const [actionLoading, setActionLoading] = useState(false)
   const [escalarModalVisible, setEscalarModalVisible] = useState(false)
   const [resolverModalVisible, setResolverModalVisible] = useState(false)
@@ -71,10 +71,14 @@ function TITicketDetail() {
   const [pdfLoading, setPdfLoading] = useState(false)
   const navigate = useNavigate()
 
+  // Category selector state for tickets transferred from NT
+  const [selectedCategoria, setSelectedCategoria] = useState(null)
+  const [savingCategoria, setSavingCategoria] = useState(false)
+
   useEffect(() => {
     loadTicket()
     loadTiUsers()
-  }, [id])
+  }, [codigo])
 
   useEffect(() => {
     if (data?.ticket?.estado === 'transferido_nt') {
@@ -82,9 +86,34 @@ function TITicketDetail() {
     }
   }, [data?.ticket?.estado])
 
+  // Set initial categoria value for tickets transferred from NT
+  useEffect(() => {
+    if (data?.transfer_origen && data?.ticket?.categoria) {
+      setSelectedCategoria(data.ticket.categoria)
+    }
+  }, [data?.transfer_origen, data?.ticket?.categoria])
+
+  const handleSaveCategoria = async () => {
+    if (!selectedCategoria) {
+      message.warning('Seleccione una categoría')
+      return
+    }
+
+    setSavingCategoria(true)
+    try {
+      await ticketsApi.updateCategoria(codigo, { categoria: selectedCategoria })
+      message.success('Categoría actualizada')
+      loadTicket()
+    } catch (error) {
+      message.error(error.message || 'Error al actualizar categoría')
+    } finally {
+      setSavingCategoria(false)
+    }
+  }
+
   const loadTransferInfo = async () => {
     try {
-      const response = await transferenciasApi.get('ticket', id)
+      const response = await transferenciasApi.get('ticket', codigo)
       if (response.data.transferencias_como_origen?.length > 0) {
         setTransferInfo(response.data.transferencias_como_origen[0])
       }
@@ -95,7 +124,7 @@ function TITicketDetail() {
 
   const loadTicket = async () => {
     try {
-      const response = await ticketsApi.get(id)
+      const response = await ticketsApi.get(codigo)
       setData(response.data)
     } catch (error) {
       console.error('Error loading ticket:', error)
@@ -117,7 +146,7 @@ function TITicketDetail() {
   const handleChangeEstado = async (nuevoEstado, extra = {}) => {
     setActionLoading(true)
     try {
-      await ticketsApi.updateEstado(id, { estado: nuevoEstado, ...extra })
+      await ticketsApi.updateEstado(codigo, { estado: nuevoEstado, ...extra })
       message.success('Estado actualizado')
       loadTicket()
     } catch (error) {
@@ -130,12 +159,16 @@ function TITicketDetail() {
   const handleAddComment = async () => {
     if (!comment.trim()) return
     try {
-      await ticketsApi.addComment(id, { contenido: comment, interno: isInternal })
+      await ticketsApi.addComment(codigo, { contenido: comment, tipo: comentarioTipo })
       setComment('')
-      message.success('Comentario agregado')
+      if (comentarioTipo === 'comunicacion') {
+        message.success('Comunicación enviada al solicitante por correo')
+      } else {
+        message.success('Comentario agregado')
+      }
       loadTicket()
     } catch (error) {
-      message.error('Error al agregar comentario')
+      message.error(error.response?.data?.error || 'Error al agregar comentario')
     }
   }
 
@@ -146,7 +179,7 @@ function TITicketDetail() {
     }
     setActionLoading(true)
     try {
-      await ticketsApi.escalar(id, { motivo: escalarMotivo })
+      await ticketsApi.escalar(codigo, { motivo: escalarMotivo })
       message.success('Ticket escalado a Nuevas Tecnologías')
       setEscalarModalVisible(false)
       setEscalarMotivo('')
@@ -165,7 +198,7 @@ function TITicketDetail() {
     }
     setActionLoading(true)
     try {
-      await ticketsApi.updateEstado(id, { estado: 'resuelto', resolucion })
+      await ticketsApi.updateEstado(codigo, { estado: 'resuelto', resolucion })
       message.success('Ticket resuelto')
       setResolverModalVisible(false)
       setResolucion('')
@@ -184,7 +217,7 @@ function TITicketDetail() {
     }
     setActionLoading(true)
     try {
-      const response = await ticketsApi.transferirNT(id, { motivo: transferMotivo })
+      const response = await ticketsApi.transferirNT(codigo, { motivo: transferMotivo })
       message.success(`Ticket transferido a Nuevas Tecnologías. Nueva solicitud: ${response.data.solicitud.codigo}`)
       setTransferModalVisible(false)
       setTransferMotivo('')
@@ -205,7 +238,7 @@ function TITicketDetail() {
       onOk: async () => {
         setActionLoading(true)
         try {
-          await ticketsApi.updateEstado(id, { estado: 'solucionado' })
+          await ticketsApi.updateEstado(codigo, { estado: 'solucionado' })
           message.success('Ticket marcado como solucionado')
           loadTicket()
         } catch (error) {
@@ -228,7 +261,7 @@ function TITicketDetail() {
       onOk: async () => {
         setActionLoading(true)
         try {
-          await ticketsApi.updateEstado(id, { estado: 'no_realizado' })
+          await ticketsApi.updateEstado(codigo, { estado: 'no_realizado' })
           message.success('Ticket marcado como no realizado')
           loadTicket()
         } catch (error) {
@@ -243,7 +276,7 @@ function TITicketDetail() {
   const handleDownloadPDF = async () => {
     setPdfLoading(true)
     try {
-      const response = await exportApi.ticketPdf(id)
+      const response = await exportApi.ticketPdf(codigo)
       const blob = new Blob([response.data], { type: 'application/pdf' })
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -270,8 +303,11 @@ function TITicketDetail() {
     return <Card><Title level={4}>Ticket no encontrado</Title></Card>
   }
 
-  const { ticket, comentarios, archivos } = data
+  const { ticket, comentarios, archivos, archivos_agrupados, transfer_origen } = data
   const solicitante = ticket.datos_solicitante || {}
+
+  // Check if this ticket was transferred from NT
+  const isTransferredFromNT = !!transfer_origen
 
   return (
     <div>
@@ -291,7 +327,7 @@ function TITicketDetail() {
       <Card>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
           <div>
-            <Title level={3} style={{ marginBottom: 8 }}>{ticket.titulo}</Title>
+            <Title level={3} style={{ marginBottom: 8 }}>{ticket.titulo?.replace(/^\[Transferido de [^\]]+\]\s*/, '')}</Title>
             <Space>
               <Text type="secondary">{ticket.codigo}</Text>
               <Tag color={estadoColors[ticket.estado]}>{estadoLabels[ticket.estado]}</Tag>
@@ -392,7 +428,7 @@ function TITicketDetail() {
                 <span>
                   Este ticket fue transferido y se creó una nueva solicitud con código{' '}
                   <strong>{transferInfo.destino_codigo}</strong>.{' '}
-                  <Link to={`/nt/solicitudes/${transferInfo.destino_id}`}>Ver solicitud</Link>
+                  <Link to={`/nt/solicitudes/${transferInfo.destino_codigo}`}>Ver solicitud</Link>
                 </span>
               ) : (
                 'Este ticket fue transferido al departamento de Nuevas Tecnologías.'
@@ -424,32 +460,82 @@ function TITicketDetail() {
           />
         )}
 
+        {isTransferredFromNT && (
+          <Alert
+            message="Ticket Transferido desde NT"
+            description={
+              <span>
+                Este ticket fue creado a partir de una transferencia de la solicitud{' '}
+                <strong>{transfer_origen.origen_codigo}</strong>.{' '}
+                <Link to={`/nt/solicitudes/${transfer_origen.origen_codigo}`}>Ver solicitud original</Link>
+              </span>
+            }
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+        )}
+
         <Row gutter={[24, 24]}>
           <Col xs={24} lg={16}>
             <Descriptions bordered column={2} size="small">
               <Descriptions.Item label="Categoría">
-                <Tag>{categoriaLabels[ticket.categoria]}</Tag>
+                {isTransferredFromNT ? (
+                  <Space>
+                    <Select
+                      value={selectedCategoria}
+                      onChange={(v) => setSelectedCategoria(v)}
+                      style={{ width: 180 }}
+                      placeholder="Seleccionar categoría"
+                    >
+                      <Select.Option value="hardware">Hardware</Select.Option>
+                      <Select.Option value="software">Software</Select.Option>
+                      <Select.Option value="red">Red</Select.Option>
+                      <Select.Option value="acceso">Acceso</Select.Option>
+                      <Select.Option value="soporte_general">Soporte General</Select.Option>
+                    </Select>
+                    <Button
+                      type="primary"
+                      size="small"
+                      loading={savingCategoria}
+                      onClick={handleSaveCategoria}
+                      disabled={!selectedCategoria || selectedCategoria === ticket.categoria}
+                    >
+                      Guardar
+                    </Button>
+                  </Space>
+                ) : (
+                  ticket.categoria ? <Tag>{categoriaLabels[ticket.categoria] || ticket.categoria}</Tag> : '--'
+                )}
               </Descriptions.Item>
               <Descriptions.Item label="Prioridad">
-                <Tag color={prioridadColors[ticket.prioridad]}>{ticket.prioridad?.toUpperCase()}</Tag>
+                <Tag color={prioridadColors[ticket.prioridad]}>{ticket.prioridad?.toUpperCase() || '--'}</Tag>
               </Descriptions.Item>
               <Descriptions.Item label="Creado">
-                {dayjs(ticket.creado_en).format('DD/MM/YYYY HH:mm')}
+                {ticket.creado_en ? dayjs(ticket.creado_en).format('DD/MM/YYYY HH:mm') : '--'}
               </Descriptions.Item>
               <Descriptions.Item label="Actualizado">
-                {dayjs(ticket.actualizado_en).format('DD/MM/YYYY HH:mm')}
+                {ticket.actualizado_en ? dayjs(ticket.actualizado_en).format('DD/MM/YYYY HH:mm') : '--'}
               </Descriptions.Item>
               <Descriptions.Item label="Asignado a" span={2}>
-                {ticket.asignado_nombre || <Text type="secondary">Sin asignar</Text>}
+                {ticket.asignado_nombre || '--'}
               </Descriptions.Item>
             </Descriptions>
 
-            <Divider orientation="left">Descripción</Divider>
-            <Paragraph style={{ whiteSpace: 'pre-wrap' }}>{ticket.descripcion}</Paragraph>
+            {/* Reporte Section */}
+            <Card size="small" title="Reporte de la Situación" style={{ marginTop: 16 }}>
+              <Descriptions bordered column={1} size="small">
+                <Descriptions.Item label="Título">
+                  {ticket.titulo?.replace(/^\[Transferido de [^\]]+\]\s*/, '') || '--'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Descripción">
+                  <span style={{ whiteSpace: 'pre-wrap' }}>{ticket.descripcion || '--'}</span>
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
 
             {ticket.resolucion && (
-              <>
-                <Divider orientation="left">Resolución</Divider>
+              <Card size="small" title="Resolución" style={{ marginTop: 16 }}>
                 <Alert
                   message="Resolución del Ticket"
                   description={ticket.resolucion}
@@ -461,63 +547,144 @@ function TITicketDetail() {
                     Resuelto el {dayjs(ticket.fecha_resolucion).format('DD/MM/YYYY HH:mm')}
                   </Text>
                 )}
-              </>
+              </Card>
             )}
           </Col>
 
           <Col xs={24} lg={8}>
-            <Card size="small" title="Datos del Solicitante">
-              <p><strong>Nombre:</strong> {solicitante.nombre_completo || solicitante.nombre || 'N/A'}</p>
-              <p><strong>Cédula:</strong> {solicitante.cedula || 'N/A'}</p>
-              <p><strong>Correo:</strong> {solicitante.correo || solicitante.email || 'N/A'}</p>
-              <p><strong>Teléfono:</strong> {solicitante.telefono || 'N/A'}</p>
-              <p><strong>Cargo:</strong> {solicitante.cargo || 'N/A'}</p>
-              <p><strong>Área:</strong> {solicitante.area || solicitante.departamento || 'N/A'}</p>
-              <p><strong>Operación/Contrato:</strong> {solicitante.operacion_contrato || 'N/A'}</p>
-              <p>
-                <strong>Es el afectado:</strong>{' '}
-                {solicitante.es_doliente === true ? (
-                  <Tag color="blue">Sí, es el doliente</Tag>
-                ) : solicitante.es_doliente === false ? (
-                  <Tag>No, reporta por otro</Tag>
-                ) : (
-                  'N/A'
-                )}
-              </p>
+            <Card size="small" title="Identificación del Solicitante">
+              <Descriptions bordered column={1} size="small">
+                <Descriptions.Item label="Nombre Completo">
+                  {solicitante.nombre_completo || solicitante.nombre || '--'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Cargo">
+                  {solicitante.cargo || '--'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Área">
+                  {solicitante.area || solicitante.departamento || '--'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Operación/Contrato">
+                  {solicitante.operacion_contrato || '--'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Correo">
+                  {solicitante.correo || solicitante.email || '--'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Teléfono">
+                  {solicitante.telefono || '--'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Cédula">
+                  {solicitante.cedula || '--'}
+                </Descriptions.Item>
+              </Descriptions>
             </Card>
 
-            {solicitante.criticidad && (
-              <Card size="small" title="Criticidad Reportada" style={{ marginTop: 16 }}>
-                <p>
-                  <strong>Urgencia:</strong>{' '}
-                  <Tag color={
-                    solicitante.criticidad.urgencia === 'critica' ? 'red' :
-                    solicitante.criticidad.urgencia === 'alta' ? 'orange' :
-                    solicitante.criticidad.urgencia === 'media' ? 'cyan' : 'green'
-                  }>
-                    {solicitante.criticidad.urgencia?.toUpperCase()}
-                  </Tag>
-                </p>
-                {solicitante.criticidad.justificacion && (
-                  <>
-                    <p style={{ marginBottom: 4 }}><strong>Justificación:</strong></p>
-                    <Paragraph style={{ margin: 0, paddingLeft: 8, whiteSpace: 'pre-wrap' }}>
-                      {solicitante.criticidad.justificacion}
-                    </Paragraph>
-                  </>
-                )}
+            {/* Criticidad - Always show this section for IT tickets */}
+            <Card size="small" title="Criticidad" style={{ marginTop: 16 }}>
+              <Descriptions bordered column={1} size="small">
+                <Descriptions.Item label="Urgencia">
+                  {(ticket.criticidad?.urgencia || solicitante.criticidad?.urgencia) ? (
+                    <Tag color={
+                      (ticket.criticidad?.urgencia || solicitante.criticidad?.urgencia) === 'critica' ? 'red' :
+                      (ticket.criticidad?.urgencia || solicitante.criticidad?.urgencia) === 'alta' ? 'orange' :
+                      (ticket.criticidad?.urgencia || solicitante.criticidad?.urgencia) === 'media' ? 'cyan' : 'green'
+                    }>
+                      {(ticket.criticidad?.urgencia || solicitante.criticidad?.urgencia).toUpperCase()}
+                    </Tag>
+                  ) : '--'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Justificación">
+                  {ticket.criticidad?.justificacion || solicitante.criticidad?.justificacion || '--'}
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+
+            {/* Transfer Info - Show when ticket came from NT */}
+            {isTransferredFromNT && transfer_origen && (
+              <Card size="small" title="Información de Transferencia" style={{ marginTop: 16 }}>
+                <Descriptions bordered column={1} size="small">
+                  <Descriptions.Item label="Solicitud Origen">
+                    <Link to={`/nt/solicitudes/${transfer_origen.origen_codigo}`}>
+                      {transfer_origen.origen_codigo}
+                    </Link>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Motivo">
+                    <span style={{ whiteSpace: 'pre-wrap' }}>{transfer_origen.motivo || '--'}</span>
+                  </Descriptions.Item>
+                </Descriptions>
               </Card>
             )}
 
-            {archivos?.length > 0 && (
+            {(archivos_agrupados?.length > 0 || archivos?.length > 0) && (
               <Card size="small" title="Archivos Adjuntos" style={{ marginTop: 16 }}>
-                {archivos.map(a => (
-                  <div key={a.id}>
-                    <a href={`/uploads/${a.nombre_almacenado}`} target="_blank" rel="noopener noreferrer">
-                      {a.nombre_original}
-                    </a>
-                  </div>
-                ))}
+                {archivos_agrupados?.length > 0 ? (
+                  <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                    {archivos_agrupados.map(grupo => (
+                      <div key={grupo.origen}>
+                        <Text strong style={{ color: '#666', fontSize: 12, textTransform: 'uppercase', marginBottom: 8, display: 'block' }}>
+                          {grupo.label} ({grupo.archivos.length})
+                        </Text>
+                        <Space direction="vertical" style={{ width: '100%', paddingLeft: 8 }}>
+                          {grupo.archivos.map(a => {
+                            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:11001'
+                            const isImage = a.mime_type?.startsWith('image/')
+                            const isPdf = a.mime_type === 'application/pdf'
+                            return (
+                              <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <FileOutlined style={{ color: isPdf ? '#ff4d4f' : isImage ? '#52c41a' : '#1890ff' }} />
+                                <a href={`${API_URL}/api/archivos/${a.id}/preview`} target="_blank" rel="noopener noreferrer">
+                                  {a.nombre_original}
+                                </a>
+                                {a.respuesta_numero && (
+                                  <Tag color="cyan" style={{ fontSize: 11 }}>{a.respuesta_numero}</Tag>
+                                )}
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  ({(a.tamano / 1024).toFixed(1)} KB)
+                                </Text>
+                                {a.subido_por_nombre && (
+                                  <Text type="secondary" style={{ fontSize: 11 }}>
+                                    por {a.subido_por_nombre}
+                                  </Text>
+                                )}
+                                <Button
+                                  size="small"
+                                  type="link"
+                                  icon={<DownloadOutlined />}
+                                  href={`${API_URL}/api/archivos/${a.id}/download`}
+                                />
+                              </div>
+                            )
+                          })}
+                        </Space>
+                        <Divider style={{ margin: '8px 0' }} />
+                      </div>
+                    ))}
+                  </Space>
+                ) : (
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    {archivos.map(a => {
+                      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:11001'
+                      const isImage = a.mime_type?.startsWith('image/')
+                      const isPdf = a.mime_type === 'application/pdf'
+                      return (
+                        <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <FileOutlined style={{ color: isPdf ? '#ff4d4f' : isImage ? '#52c41a' : '#1890ff' }} />
+                          <a href={`${API_URL}/api/archivos/${a.id}/preview`} target="_blank" rel="noopener noreferrer">
+                            {a.nombre_original}
+                          </a>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            ({(a.tamano / 1024).toFixed(1)} KB)
+                          </Text>
+                          <Button
+                            size="small"
+                            type="link"
+                            icon={<DownloadOutlined />}
+                            href={`${API_URL}/api/archivos/${a.id}/download`}
+                          />
+                        </div>
+                      )
+                    })}
+                  </Space>
+                )}
               </Card>
             )}
           </Col>
@@ -531,17 +698,27 @@ function TITicketDetail() {
             .map(c => (
               <Timeline.Item
                 key={c.id}
-                color={c.tipo === 'cambio_estado' ? 'purple' : c.interno ? 'orange' : 'gray'}
+                color={
+                  c.tipo === 'cambio_estado' ? 'purple' :
+                  c.tipo === 'interno' ? 'orange' :
+                  c.tipo === 'comunicacion' ? 'blue' :
+                  c.tipo === 'publico' ? 'green' :
+                  c.interno ? 'orange' : 'gray'
+                }
               >
                 <div>
-                  <Text strong>{c.autor_nombre}</Text>
-                  {c.interno && <Tag color="orange" style={{ marginLeft: 8 }}>Interno</Tag>}
+                  <Text strong>{c.autor_externo || c.autor_nombre}</Text>
+                  {c.tipo === 'interno' && <Tag color="orange" style={{ marginLeft: 8 }}>Interno</Tag>}
+                  {c.tipo === 'publico' && <Tag color="green" style={{ marginLeft: 8 }}>Público</Tag>}
+                  {c.tipo === 'comunicacion' && <Tag color="blue" style={{ marginLeft: 8 }}>Comunicación</Tag>}
+                  {c.tipo === 'respuesta' && <Tag color="cyan" style={{ marginLeft: 8 }}>Respuesta Solicitante</Tag>}
                   {c.tipo === 'cambio_estado' && <Tag color="purple" style={{ marginLeft: 8 }}>Sistema</Tag>}
+                  {!c.tipo && c.interno && <Tag color="orange" style={{ marginLeft: 8 }}>Interno</Tag>}
                   <Text type="secondary" style={{ marginLeft: 8 }}>
                     {dayjs(c.creado_en).format('DD/MM/YYYY HH:mm')}
                   </Text>
                 </div>
-                <Paragraph style={{ marginTop: 4 }}>{c.contenido}</Paragraph>
+                <Paragraph style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}>{c.contenido}</Paragraph>
               </Timeline.Item>
             ))}
           {(!comentarios || comentarios.length === 0) && (
@@ -553,26 +730,33 @@ function TITicketDetail() {
           <Space direction="vertical" style={{ width: '100%' }}>
             <Space>
               <Select
-                value={isInternal ? 'interno' : 'publico'}
-                onChange={(v) => setIsInternal(v === 'interno')}
-                style={{ width: 150 }}
+                value={comentarioTipo}
+                onChange={(v) => setComentarioTipo(v)}
+                style={{ width: 180 }}
               >
-                <Select.Option value="publico">Comentario</Select.Option>
                 <Select.Option value="interno">Nota Interna</Select.Option>
+                <Select.Option value="publico">Comentario Público</Select.Option>
+                <Select.Option value="comunicacion">Comunicación / Pregunta</Select.Option>
               </Select>
-              {isInternal && (
-                <Text type="secondary">Las notas internas no son visibles para el solicitante</Text>
-              )}
+              <Text type="secondary">
+                {comentarioTipo === 'interno' && 'Solo visible para el equipo técnico'}
+                {comentarioTipo === 'publico' && 'Visible en la página de consulta pública'}
+                {comentarioTipo === 'comunicacion' && 'Se enviará por correo al solicitante con enlace para responder'}
+              </Text>
             </Space>
             <Space.Compact style={{ width: '100%' }}>
               <TextArea
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder={isInternal ? 'Agregar nota interna...' : 'Agregar comentario...'}
+                placeholder={
+                  comentarioTipo === 'interno' ? 'Agregar nota interna...' :
+                  comentarioTipo === 'publico' ? 'Agregar comentario público...' :
+                  'Escribir pregunta o comunicación para el solicitante...'
+                }
                 rows={2}
               />
               <Button type="primary" icon={<SendOutlined />} onClick={handleAddComment}>
-                Enviar
+                {comentarioTipo === 'comunicacion' ? 'Enviar Correo' : 'Enviar'}
               </Button>
             </Space.Compact>
           </Space>

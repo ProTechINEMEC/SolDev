@@ -48,7 +48,7 @@ function NTDashboard() {
     {
       title: 'Código',
       dataIndex: 'codigo',
-      render: (code, record) => <Link to={`/nt/solicitudes/${record.id}`}>{code}</Link>
+      render: (code, record) => <Link to={`/nt/solicitudes/${record.codigo}`}>{code}</Link>
     },
     {
       title: 'Título',
@@ -157,7 +157,7 @@ function NTDashboard() {
               renderItem={(item) => (
                 <List.Item>
                   <List.Item.Meta
-                    title={<Link to={`/nt/proyectos/${item.id}`}>{item.codigo}</Link>}
+                    title={<Link to={`/nt/proyectos/${item.codigo}`}>{item.codigo}</Link>}
                     description={item.titulo}
                   />
                   <div>

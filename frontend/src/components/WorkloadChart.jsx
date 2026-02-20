@@ -1,124 +1,135 @@
 import { useMemo } from 'react'
-import { Card, Typography, Tooltip, Tag, Empty } from 'antd'
-import { UserOutlined } from '@ant-design/icons'
+import { Card, Typography, Tooltip, Empty } from 'antd'
+import { CrownOutlined } from '@ant-design/icons'
 
 const { Text } = Typography
 
-// Phase colors
-const phaseColors = {
-  analisis: '#1890ff',
-  diseno: '#722ed1',
-  desarrollo: '#52c41a',
-  pruebas: '#faad14',
-  documentacion: '#13c2c2',
-  entrega: '#eb2f96'
-}
-
-const phaseLabels = {
-  analisis: 'Análisis',
-  diseno: 'Diseño',
-  desarrollo: 'Desarrollo',
-  pruebas: 'Pruebas',
-  documentacion: 'Documentación',
-  entrega: 'Entrega'
-}
-
-// Phase order for sorting tasks
-const PHASE_ORDER = ['analisis', 'diseno', 'desarrollo', 'pruebas', 'documentacion', 'entrega']
-
 // Height per day in pixels
-const DAY_HEIGHT = 8
+const DAY_HEIGHT = 20
 
-function WorkloadChart({ equipo, tareas, liderId }) {
-  // Calculate workload per team member
-  const workloadData = useMemo(() => {
-    if (!equipo || equipo.length === 0) return { columns: [], maxDays: 0, totalDays: 0 }
+// 16 distinct phase colors (good contrast for white text)
+const PHASE_COLORS = [
+  '#1890ff', // blue
+  '#52c41a', // green
+  '#722ed1', // purple
+  '#fa541c', // orange
+  '#13c2c2', // cyan
+  '#eb2f96', // magenta
+  '#faad14', // gold
+  '#2f54eb', // geek blue
+  '#a0d911', // lime
+  '#fa8c16', // volcano
+  '#1d39c4', // deep blue
+  '#c41d7f', // deep magenta
+  '#08979c', // teal
+  '#d4380d', // red-orange
+  '#7cb305', // olive
+  '#531dab'  // deep purple
+]
 
-    // Group tasks by team member
-    const memberTasks = {}
-    equipo.forEach(member => {
-      memberTasks[member.id] = []
-    })
+function WorkloadChart({ equipo, tareas, liderId, fases = [] }) {
+  // Calculate timeline with proper phase sequencing and task alignment
+  const timelineData = useMemo(() => {
+    if (!equipo || equipo.length === 0 || fases.length === 0) {
+      return { columns: [], totalDays: 0, phaseTimeline: [] }
+    }
 
-    // Also track unassigned tasks
-    memberTasks['unassigned'] = []
+    // Build phase timeline - phases are sequential
+    const phaseTimeline = []
+    let currentDay = 0
 
-    // Sort tasks by phase order, then by order within phase
-    const sortedTasks = [...tareas].sort((a, b) => {
-      const phaseA = PHASE_ORDER.indexOf(a.fase)
-      const phaseB = PHASE_ORDER.indexOf(b.fase)
-      if (phaseA !== phaseB) return phaseA - phaseB
-      return (a.orden || 0) - (b.orden || 0)
-    })
+    // Store all positioned tasks with their absolute positions
+    const allPositionedTasks = []
 
-    // Assign tasks to columns
-    sortedTasks.forEach(tarea => {
-      const assignedIds = tarea.asignados_ids || []
-      if (assignedIds.length === 0) {
-        // Unassigned task
-        memberTasks['unassigned'].push(tarea)
-      } else {
-        // Add to each assigned member's column
-        assignedIds.forEach(userId => {
-          if (memberTasks[userId]) {
-            memberTasks[userId].push(tarea)
-          }
+    fases.forEach((fase) => {
+      const faseTareas = tareas.filter(t => t.fase === fase)
+      const phaseStartDay = currentDay
+
+      // Get phase color (loops after 16)
+      const phaseColor = PHASE_COLORS[phaseTimeline.length % PHASE_COLORS.length]
+
+      if (faseTareas.length === 0) {
+        phaseTimeline.push({
+          fase,
+          startDay: currentDay,
+          endDay: currentDay,
+          duration: 0,
+          color: phaseColor
         })
+        return
       }
+
+      // Tasks are sequential - each task starts after the previous one finishes
+      let currentTaskDay = phaseStartDay
+
+      // Process tasks in order - sequential execution
+      faseTareas.forEach((task) => {
+        const assignedIds = task.asignados_ids || []
+        if (assignedIds.length === 0) return
+
+        const taskStartDay = currentTaskDay
+        const taskEndDay = taskStartDay + (task.duracion_dias || 1)
+
+        // Create positioned task for each assigned member
+        assignedIds.forEach(memberId => {
+          allPositionedTasks.push({
+            ...task,
+            memberId,
+            startDay: taskStartDay,
+            endDay: taskEndDay,
+            phaseColor: phaseColor
+          })
+        })
+
+        // Move to next task position (sequential)
+        currentTaskDay = taskEndDay
+      })
+
+      // Phase duration is determined by the last task end
+      const phaseEndDay = currentTaskDay
+      const phaseDuration = phaseEndDay - phaseStartDay
+
+      phaseTimeline.push({
+        fase,
+        startDay: phaseStartDay,
+        endDay: phaseEndDay,
+        duration: phaseDuration,
+        color: phaseColor
+      })
+
+      currentDay = phaseEndDay
     })
 
-    // Calculate total days per member
+    const totalDays = currentDay
+
+    // Build columns for each team member
     const columns = equipo.map(member => {
-      const tasks = memberTasks[member.id] || []
-      const totalDays = tasks.reduce((sum, t) => sum + (t.duracion_dias || 0), 0)
+      const memberTasks = allPositionedTasks.filter(t => t.memberId === member.id)
+      const totalMemberDays = memberTasks.reduce((sum, t) => sum + (t.duracion_dias || 0), 0)
+
       return {
         member,
-        tasks,
-        totalDays,
+        tasks: memberTasks,
+        totalDays: totalMemberDays,
         isLider: member.id === liderId
       }
     })
 
-    // Add unassigned column if there are unassigned tasks
-    if (memberTasks['unassigned'].length > 0) {
-      const unassignedDays = memberTasks['unassigned'].reduce((sum, t) => sum + (t.duracion_dias || 0), 0)
-      columns.push({
-        member: { id: 'unassigned', nombre: 'Sin Asignar' },
-        tasks: memberTasks['unassigned'],
-        totalDays: unassignedDays,
-        isUnassigned: true
-      })
-    }
-
-    // Find max days for scaling
-    const maxDays = Math.max(...columns.map(c => c.totalDays), 1)
-
-    // Calculate total project duration (considering parallel work)
-    // Group by phase and get max duration per phase
-    const phaseMaxDurations = {}
-    PHASE_ORDER.forEach(phase => {
-      const phaseTasks = tareas.filter(t => t.fase === phase)
-      if (phaseTasks.length > 0) {
-        // For each phase, find the maximum total duration across all members
-        const memberPhaseTotals = {}
-        phaseTasks.forEach(task => {
-          const assignedIds = task.asignados_ids?.length > 0 ? task.asignados_ids : ['unassigned']
-          assignedIds.forEach(userId => {
-            memberPhaseTotals[userId] = (memberPhaseTotals[userId] || 0) + (task.duracion_dias || 0)
-          })
-        })
-        phaseMaxDurations[phase] = Math.max(...Object.values(memberPhaseTotals), 0)
-      }
-    })
-    const totalDays = Object.values(phaseMaxDurations).reduce((sum, d) => sum + d, 0)
-
-    return { columns, maxDays, totalDays }
-  }, [equipo, tareas, liderId])
+    return { columns, totalDays, phaseTimeline }
+  }, [equipo, tareas, liderId, fases])
 
   if (!equipo || equipo.length === 0) {
     return (
       <Card size="small">
         <Empty description="Seleccione el equipo para ver la distribución de carga" />
+      </Card>
+    )
+  }
+
+  if (fases.length === 0) {
+    return (
+      <Card size="small">
+        <Empty description="Defina las fases para ver la distribución de carga" />
       </Card>
     )
   }
@@ -131,8 +142,20 @@ function WorkloadChart({ equipo, tareas, liderId }) {
     )
   }
 
-  const { columns, maxDays, totalDays } = workloadData
-  const chartHeight = maxDays * DAY_HEIGHT + 60 // Extra space for totals
+  const { columns, totalDays, phaseTimeline } = timelineData
+
+  if (totalDays === 0) {
+    return (
+      <Card size="small">
+        <Empty description="Asigne tareas al equipo para ver la distribución" />
+      </Card>
+    )
+  }
+
+  const chartHeight = totalDays * DAY_HEIGHT
+
+  // Generate day markers
+  const dayMarkers = Array.from({ length: totalDays }, (_, i) => i + 1)
 
   return (
     <Card
@@ -140,116 +163,258 @@ function WorkloadChart({ equipo, tareas, liderId }) {
       title="Distribución de Carga de Trabajo"
       extra={
         <Text type="secondary">
-          Duración total estimada: <Text strong>{totalDays} días hábiles</Text>
+          Duración total: <Text strong>{totalDays} días hábiles</Text>
         </Text>
       }
     >
-      <div style={{
-        display: 'flex',
-        gap: 8,
-        overflowX: 'auto',
-        paddingBottom: 8
-      }}>
-        {columns.map(({ member, tasks, totalDays: memberDays, isLider, isUnassigned }) => (
-          <div
-            key={member.id}
-            style={{
-              minWidth: 140,
-              maxWidth: 180,
-              flex: '1 0 140px',
-              display: 'flex',
-              flexDirection: 'column'
-            }}
-          >
-            {/* Header - Member name */}
-            <div style={{
-              padding: '8px 4px',
-              textAlign: 'center',
-              borderBottom: '2px solid #f0f0f0',
-              backgroundColor: isUnassigned ? '#fff7e6' : (isLider ? '#e6f7ff' : '#fafafa'),
-              borderRadius: '4px 4px 0 0'
-            }}>
-              <UserOutlined style={{ marginRight: 4, color: isUnassigned ? '#faad14' : '#1890ff' }} />
-              <Text strong style={{ fontSize: 12 }}>
-                {member.nombre.split(' ')[0]}
-              </Text>
-              {isLider && <Tag color="blue" style={{ marginLeft: 4, fontSize: 10 }}>Líder</Tag>}
-            </div>
+      <div style={{ display: 'flex', overflowX: 'auto' }}>
+        {/* Phase labels on the left */}
+        <div style={{
+          minWidth: 30,
+          borderRight: '1px solid #d9d9d9'
+        }}>
+          {/* Header spacer */}
+          <div style={{ height: 40, borderBottom: '2px solid #d9d9d9' }} />
 
-            {/* Tasks column */}
-            <div style={{
-              flex: 1,
-              minHeight: chartHeight,
-              backgroundColor: '#fafafa',
-              padding: 4,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 2
-            }}>
-              {tasks.map((tarea, index) => {
-                const height = Math.max(tarea.duracion_dias * DAY_HEIGHT, 24)
-                return (
-                  <Tooltip
-                    key={`${tarea.id || index}`}
-                    title={
-                      <div>
-                        <div><strong>{tarea.nombre}</strong></div>
-                        <div>Fase: {phaseLabels[tarea.fase]}</div>
-                        <div>Duración: {tarea.duracion_dias} días</div>
-                      </div>
-                    }
+          {/* Phase labels */}
+          <div style={{ position: 'relative', height: chartHeight }}>
+            {phaseTimeline.map((phase, index) => (
+              phase.duration > 0 && (
+                <div
+                  key={phase.fase}
+                  style={{
+                    position: 'absolute',
+                    top: phase.startDay * DAY_HEIGHT,
+                    height: phase.duration * DAY_HEIGHT,
+                    left: 0,
+                    right: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: phase.color,
+                    borderBottom: '2px solid #595959'
+                  }}
+                >
+                  <Text
+                    strong
+                    style={{
+                      writingMode: 'vertical-rl',
+                      textOrientation: 'mixed',
+                      transform: 'rotate(180deg)',
+                      fontSize: 10,
+                      color: 'white'
+                    }}
                   >
-                    <div
-                      style={{
-                        height,
-                        backgroundColor: phaseColors[tarea.fase] || '#1890ff',
-                        borderRadius: 4,
-                        padding: '2px 6px',
-                        color: 'white',
-                        fontSize: 10,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        opacity: 0.9,
-                        transition: 'opacity 0.2s'
-                      }}
-                      onMouseEnter={(e) => e.target.style.opacity = 1}
-                      onMouseLeave={(e) => e.target.style.opacity = 0.9}
-                    >
-                      {height >= 32 ? tarea.nombre : `${tarea.duracion_dias}d`}
-                    </div>
-                  </Tooltip>
-                )
-              })}
-            </div>
-
-            {/* Footer - Total days */}
-            <div style={{
-              padding: '8px 4px',
-              textAlign: 'center',
-              borderTop: '2px solid #f0f0f0',
-              backgroundColor: '#fafafa',
-              borderRadius: '0 0 4px 4px'
-            }}>
-              <Text strong style={{ color: memberDays > maxDays * 0.8 ? '#ff4d4f' : '#52c41a' }}>
-                {memberDays} días
-              </Text>
-            </div>
+                    F{index + 1}
+                  </Text>
+                </div>
+              )
+            ))}
           </div>
-        ))}
+
+          {/* Footer spacer */}
+          <div style={{ height: 40, borderTop: '2px solid #d9d9d9' }} />
+        </div>
+
+        {/* Day labels */}
+        <div style={{
+          minWidth: 35,
+          borderRight: '2px solid #d9d9d9',
+          marginRight: 8
+        }}>
+          {/* Header - "Días" label */}
+          <div style={{
+            height: 40,
+            borderBottom: '2px solid #d9d9d9',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}>
+            <Text strong style={{ fontSize: 10 }}>Días</Text>
+          </div>
+
+          {/* Day numbers */}
+          <div style={{ position: 'relative', height: chartHeight }}>
+            {dayMarkers.map(day => (
+              <div
+                key={day}
+                style={{
+                  position: 'absolute',
+                  top: (day - 1) * DAY_HEIGHT,
+                  height: DAY_HEIGHT,
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-end',
+                  paddingRight: 6,
+                  fontSize: 10,
+                  color: '#595959'
+                }}
+              >
+                {day}
+              </div>
+            ))}
+          </div>
+
+          {/* Footer spacer */}
+          <div style={{ height: 40, borderTop: '2px solid #d9d9d9' }} />
+        </div>
+
+        {/* Team member columns */}
+        <div style={{
+          display: 'flex',
+          gap: 0,
+          flex: 1
+        }}>
+          {columns.map(({ member, tasks, totalDays: memberDays, isLider }, colIndex) => (
+            <div
+              key={member.id}
+              style={{
+                minWidth: 120,
+                maxWidth: 160,
+                flex: '1 0 120px',
+                display: 'flex',
+                flexDirection: 'column',
+                borderLeft: colIndex === 0 ? '1px solid #d9d9d9' : 'none',
+                borderRight: '1px solid #d9d9d9'
+              }}
+            >
+              {/* Header - Member name */}
+              <div style={{
+                height: 40,
+                padding: '4px',
+                textAlign: 'center',
+                borderBottom: '2px solid #d9d9d9',
+                backgroundColor: '#fafafa',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 4
+              }}>
+                {isLider && (
+                  <CrownOutlined style={{ color: 'rgba(0, 0, 0, 0.85)', fontSize: 12 }} />
+                )}
+                <Text strong style={{ fontSize: 11 }}>
+                  {member.nombre.split(' ')[0]}
+                </Text>
+              </div>
+
+              {/* Tasks column with proper positioning */}
+              <div style={{
+                height: chartHeight,
+                backgroundColor: '#fff',
+                position: 'relative'
+              }}>
+                {/* Phase separator lines */}
+                {phaseTimeline.map((phase) => (
+                  phase.duration > 0 && (
+                    <div
+                      key={`sep-${phase.fase}`}
+                      style={{
+                        position: 'absolute',
+                        top: phase.endDay * DAY_HEIGHT,
+                        left: 0,
+                        right: 0,
+                        height: 2,
+                        backgroundColor: '#595959',
+                        zIndex: 3
+                      }}
+                    />
+                  )
+                ))}
+
+                {/* Day grid lines */}
+                {dayMarkers.map(day => (
+                  <div
+                    key={day}
+                    style={{
+                      position: 'absolute',
+                      top: (day - 1) * DAY_HEIGHT,
+                      left: 0,
+                      right: 0,
+                      height: DAY_HEIGHT,
+                      borderBottom: '1px solid #f0f0f0',
+                      pointerEvents: 'none'
+                    }}
+                  />
+                ))}
+
+                {/* Task blocks - positioned by startDay */}
+                {tasks.map((tarea, index) => {
+                  const top = tarea.startDay * DAY_HEIGHT
+                  const height = Math.max(tarea.duracion_dias * DAY_HEIGHT - 2, 16)
+
+                  return (
+                    <Tooltip
+                      key={`${tarea.id}-${index}`}
+                      title={
+                        <div>
+                          <div><strong>{tarea.nombre || 'Sin nombre'}</strong></div>
+                          <div>Fase: {tarea.fase}</div>
+                          <div>Día {tarea.startDay + 1} - {tarea.endDay}</div>
+                          <div>Duración: {tarea.duracion_dias} días</div>
+                        </div>
+                      }
+                    >
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: top + 1,
+                          left: 3,
+                          right: 3,
+                          height,
+                          backgroundColor: tarea.phaseColor,
+                          borderRadius: 3,
+                          padding: '1px 4px',
+                          color: 'white',
+                          fontSize: 10,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+                          zIndex: 2
+                        }}
+                      >
+                        {tarea.nombre || '...'}
+                      </div>
+                    </Tooltip>
+                  )
+                })}
+              </div>
+
+              {/* Footer - Total days */}
+              <div style={{
+                height: 40,
+                padding: '4px',
+                textAlign: 'center',
+                borderTop: '2px solid #d9d9d9',
+                backgroundColor: '#fafafa',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                <Text strong style={{ fontSize: 12 }}>
+                  {memberDays} días
+                </Text>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Phase Legend */}
-      <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
-        {PHASE_ORDER.map(phase => (
-          <Tag key={phase} color={phaseColors[phase]} style={{ margin: 0 }}>
-            {phaseLabels[phase]}
-          </Tag>
-        ))}
-      </div>
+      {/* Phase Legend - simple text list */}
+      {fases.length > 0 && (
+        <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'center' }}>
+          {fases.map((fase, index) => (
+            <Text key={fase} style={{ fontSize: 11 }}>
+              <Text strong>Fase {index + 1}:</Text> {fase}
+            </Text>
+          ))}
+        </div>
+      )}
     </Card>
   )
 }

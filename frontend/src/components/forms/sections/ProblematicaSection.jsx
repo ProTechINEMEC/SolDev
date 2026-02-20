@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Form, Input, Select, Card, Row, Col, DatePicker, Divider, Typography } from 'antd'
+import { Form, Input, Select, Card, Row, Col, DatePicker, Divider, Typography, Tag } from 'antd'
 import { opcionesApi } from '../../../services/api'
 import { CRITICIDAD_LEVELS } from '../../../config/formOptions'
 import FileUploader from '../FileUploader'
@@ -7,7 +7,7 @@ import FileUploader from '../FileUploader'
 const { TextArea } = Input
 const { Text } = Typography
 
-function ProblematicaSection() {
+function ProblematicaSection({ sectionNumber = 4 }) {
   const [criticidadOptions, setCriticidadOptions] = useState(CRITICIDAD_LEVELS)
 
   useEffect(() => {
@@ -29,10 +29,31 @@ function ProblematicaSection() {
   }
 
   return (
-    <Card title="4. Descripción de la Problemática/Situación" style={{ marginBottom: 24 }}>
+    <Card title={`${sectionNumber}. Descripción de la Problemática/Situación`} style={{ marginBottom: 24 }}>
+      <Form.Item
+        name={['problematica', 'titulo']}
+        label={`${sectionNumber}.1 Título del proyecto/solicitud`}
+        rules={[
+          { required: true, message: 'Ingrese un título para el proyecto' },
+          { min: 5, message: 'El título debe tener al menos 5 caracteres' },
+          { max: 100, message: 'El título no puede exceder 100 caracteres' }
+        ]}
+        extra={
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Un título breve y descriptivo que identifique el proyecto o solicitud
+          </Text>
+        }
+      >
+        <Input
+          placeholder="Ej: Sistema de gestión de inventarios para bodega central"
+          maxLength={100}
+          showCount
+        />
+      </Form.Item>
+
       <Form.Item
         name={['problematica', 'situacion_actual']}
-        label="4.1 Describa la situación/problemática actual"
+        label={`${sectionNumber}.2 Describa la situación/problemática actual`}
         rules={[{ required: true, message: 'Describa la situación actual' }]}
       >
         <TextArea
@@ -43,7 +64,7 @@ function ProblematicaSection() {
 
       <Form.Item
         name={['problematica', 'origen']}
-        label="4.2 ¿Cuál es el origen del problema?"
+        label={`${sectionNumber}.3 ¿Cuál es el origen del problema?`}
         rules={[{ required: true, message: 'Describa el origen del problema' }]}
       >
         <TextArea
@@ -56,7 +77,11 @@ function ProblematicaSection() {
         <Col xs={24} md={12}>
           <Form.Item
             name={['problematica', 'fecha_inicio']}
-            label="4.3 ¿Desde cuándo se presenta el problema?"
+            label={
+              <span>
+                {sectionNumber}.4 ¿Desde cuándo se presenta el problema? <Tag color="blue" style={{ marginLeft: 8 }}>Opcional</Tag>
+              </span>
+            }
           >
             <DatePicker
               style={{ width: '100%' }}
@@ -69,18 +94,22 @@ function ProblematicaSection() {
 
       <Form.Item
         name={['problematica', 'evidencia']}
-        label="4.4 Evidencia del problema (adjuntos)"
+        label={
+          <span>
+            {sectionNumber}.5 Evidencia del problema (adjuntos) <Tag color="blue" style={{ marginLeft: 8 }}>Opcional</Tag>
+          </span>
+        }
       >
         <FileUploader
           name="evidencia"
-          hint="Adjunte capturas, documentos o cualquier evidencia que ilustre el problema"
+          hint="Adjunte capturas, documentos o cualquier evidencia que ilustre el problema. Se aceptan todos los formatos."
           maxCount={5}
         />
       </Form.Item>
 
       <Form.Item
         name={['problematica', 'afectacion_operacion']}
-        label="4.5 ¿Cómo afecta a la operación?"
+        label={`${sectionNumber}.6 ¿Cómo afecta a la operación?`}
         rules={[{ required: true, message: 'Describa cómo afecta la operación' }]}
       >
         <TextArea
@@ -91,7 +120,7 @@ function ProblematicaSection() {
 
       <Form.Item
         name={['problematica', 'procesos_comprometidos']}
-        label="4.6 ¿Qué procesos, tareas o resultados se ven comprometidos?"
+        label={`${sectionNumber}.7 ¿Qué procesos, tareas o resultados se ven comprometidos?`}
         rules={[{ required: true, message: 'Liste los procesos afectados' }]}
       >
         <TextArea
@@ -101,7 +130,7 @@ function ProblematicaSection() {
       </Form.Item>
 
       <Divider orientation="left" orientationMargin={0}>
-        <Text strong>4.7 Impacto si NO se desarrolla el proyecto</Text>
+        <Text strong>{sectionNumber}.8 Impacto si NO se desarrolla el proyecto</Text>
       </Divider>
 
       <Row gutter={16}>

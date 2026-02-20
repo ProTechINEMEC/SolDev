@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Form, Input, Select, Card, Row, Col, DatePicker, Typography } from 'antd'
+import { Form, Input, Select, Card, Row, Col, DatePicker, Typography, Tag } from 'antd'
 import { opcionesApi } from '../../../services/api'
 import { NIVELES_URGENCIA } from '../../../config/formOptions'
 
 const { TextArea } = Input
 const { Text } = Typography
 
-function UrgenciaSection({ tipo = 'proyecto_nuevo_interno' }) {
+function UrgenciaSection({ tipo = 'proyecto_nuevo_interno', sectionNumber = 5 }) {
   const [urgenciaOptions, setUrgenciaOptions] = useState(NIVELES_URGENCIA)
 
   useEffect(() => {
@@ -28,11 +28,11 @@ function UrgenciaSection({ tipo = 'proyecto_nuevo_interno' }) {
   }
 
   const labelNecesidad = tipo === 'actualizacion'
-    ? '5.1 Necesidad principal de la actualización'
-    : '5.1 Necesidad principal del proyecto'
+    ? `${sectionNumber}.1 Necesidad principal de la actualización`
+    : `${sectionNumber}.1 Necesidad principal del proyecto`
 
   return (
-    <Card title="5. Necesidad y Urgencia" style={{ marginBottom: 24 }}>
+    <Card title={`${sectionNumber}. Necesidad y Urgencia`} style={{ marginBottom: 24 }}>
       <Form.Item
         name={['urgencia', 'necesidad_principal']}
         label={labelNecesidad}
@@ -48,7 +48,7 @@ function UrgenciaSection({ tipo = 'proyecto_nuevo_interno' }) {
         <Col xs={24} md={12}>
           <Form.Item
             name={['urgencia', 'nivel']}
-            label="5.2 Nivel de Urgencia"
+            label={`${sectionNumber}.2 Nivel de Urgencia`}
             rules={[{ required: true, message: 'Seleccione el nivel de urgencia' }]}
           >
             <Select
@@ -60,7 +60,11 @@ function UrgenciaSection({ tipo = 'proyecto_nuevo_interno' }) {
         <Col xs={24} md={12}>
           <Form.Item
             name={['urgencia', 'fecha_limite']}
-            label="5.3 Fecha Límite (si aplica)"
+            label={
+              <span>
+                {sectionNumber}.3 Fecha Límite <Tag color="blue" style={{ marginLeft: 8 }}>Opcional</Tag>
+              </span>
+            }
           >
             <DatePicker
               style={{ width: '100%' }}
@@ -73,7 +77,7 @@ function UrgenciaSection({ tipo = 'proyecto_nuevo_interno' }) {
 
       <Form.Item
         name={['urgencia', 'justificacion_nt']}
-        label="5.4 ¿Por qué este proyecto debe ser desarrollado por Nuevas Tecnologías?"
+        label={`${sectionNumber}.4 ¿Por qué este proyecto debe ser desarrollado por Nuevas Tecnologías?`}
         rules={[{ required: true, message: 'Justifique por qué NT debe desarrollar esto' }]}
         extra={
           <Text type="secondary" style={{ fontSize: 12 }}>

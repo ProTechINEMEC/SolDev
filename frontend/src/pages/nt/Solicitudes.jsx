@@ -16,19 +16,19 @@ const { Title, Text } = Typography
 // Status configuration - display order for list
 const statusConfig = {
   pendiente_evaluacion_nt: { text: 'Pendiente', order: 1, group: 'Pendiente' },
-  pendiente_reevaluacion: { text: 'Requiere Revisión', order: 2, group: 'Requiere Revisión' },
-  en_estudio: { text: 'En Estudio', order: 3, group: 'En Estudio' },
-  agendado: { text: 'Agendado', order: 4, group: 'Agendado' },
-  // All others go to "Otros" group (order 5)
-  pendiente_aprobacion_gerencia: { text: 'En Gerencia', order: 5, group: 'Otros', subOrder: 1 },
-  aprobado: { text: 'Aprobado', order: 5, group: 'Otros', subOrder: 2 },
-  en_desarrollo: { text: 'En Desarrollo', order: 5, group: 'Otros', subOrder: 3 },
-  stand_by: { text: 'En Espera', order: 5, group: 'Otros', subOrder: 4 },
-  completado: { text: 'Completado', order: 5, group: 'Otros', subOrder: 5 },
-  transferido_ti: { text: 'Transferido a TI', order: 5, group: 'Otros', subOrder: 6 },
-  descartado_nt: { text: 'Descartado', order: 5, group: 'Otros', subOrder: 7 },
-  rechazado_gerencia: { text: 'Rechazado', order: 5, group: 'Otros', subOrder: 8 },
-  cancelado: { text: 'Cancelado', order: 5, group: 'Otros', subOrder: 9 }
+  en_estudio: { text: 'En Estudio', order: 2, group: 'En Estudio' },
+  pendiente_reevaluacion: { text: 'Requiere Revisión', order: 3, group: 'Requiere Revisión' },
+  pendiente_aprobacion_gerencia: { text: 'En Gerencia', order: 4, group: 'En Gerencia' },
+  agendado: { text: 'Agendado', order: 5, group: 'Agendado' },
+  // All others go to "Otros" group (order 6)
+  aprobado: { text: 'Aprobado', order: 6, group: 'Otros', subOrder: 1 },
+  en_desarrollo: { text: 'En Desarrollo', order: 6, group: 'Otros', subOrder: 2 },
+  stand_by: { text: 'En Espera', order: 6, group: 'Otros', subOrder: 3 },
+  completado: { text: 'Completado', order: 6, group: 'Otros', subOrder: 4 },
+  transferido_ti: { text: 'Transferido a TI', order: 6, group: 'Otros', subOrder: 5 },
+  descartado_nt: { text: 'Descartado', order: 6, group: 'Otros', subOrder: 6 },
+  rechazado_gerencia: { text: 'Rechazado', order: 6, group: 'Otros', subOrder: 7 },
+  cancelado: { text: 'Cancelado', order: 6, group: 'Otros', subOrder: 8 }
 }
 
 const tipoConfig = {
@@ -48,13 +48,14 @@ const prioridadConfig = {
 }
 
 // Group display order
-const groupOrder = ['Pendiente', 'Requiere Revisión', 'En Estudio', 'Agendado', 'Otros']
+const groupOrder = ['Pendiente', 'En Estudio', 'Requiere Revisión', 'En Gerencia', 'Agendado', 'Otros']
 
 // Default collapse preferences (when group has items)
 const defaultCollapsed = {
   'Pendiente': false,
-  'Requiere Revisión': false,
   'En Estudio': false,
+  'Requiere Revisión': false,
+  'En Gerencia': true,
   'Agendado': true,
   'Otros': true
 }
@@ -201,12 +202,8 @@ function NTSolicitudes() {
     // Sort items within each group
     Object.keys(groups).forEach(g => {
       if (g === 'Otros') {
-        // Otros: sort by state -> date -> priority
+        // Otros: sort by date -> priority
         groups[g] = [...groups[g]].sort((a, b) => {
-          const stateA = statusConfig[a.estado]?.subOrder || 99
-          const stateB = statusConfig[b.estado]?.subOrder || 99
-          if (stateA !== stateB) return stateA - stateB
-
           const dateA = dayjs(a.creado_en).valueOf()
           const dateB = dayjs(b.creado_en).valueOf()
           if (dateA !== dateB) return dateB - dateA // newest first
@@ -247,7 +244,7 @@ function NTSolicitudes() {
       dataIndex: 'codigo',
       width: 145,
       render: (code, record) => (
-        <Link to={`/nt/solicitudes/${record.id}`}>
+        <Link to={`/nt/solicitudes/${record.codigo}`}>
           <Text strong style={{ color: '#1890ff', whiteSpace: 'nowrap' }}>{code}</Text>
         </Link>
       )
@@ -313,7 +310,7 @@ function NTSolicitudes() {
       dataIndex: 'codigo',
       width: 145,
       render: (code, record) => (
-        <Link to={`/nt/solicitudes/${record.id}`}>
+        <Link to={`/nt/solicitudes/${record.codigo}`}>
           <Text strong style={{ color: '#1890ff', whiteSpace: 'nowrap' }}>{code}</Text>
         </Link>
       )

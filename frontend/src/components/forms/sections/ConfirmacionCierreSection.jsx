@@ -3,9 +3,9 @@ import { WarningOutlined } from '@ant-design/icons'
 
 const { Text } = Typography
 
-function ConfirmacionCierreSection() {
+function ConfirmacionCierreSection({ sectionNumber = 5 }) {
   return (
-    <Card title="4. Confirmación" style={{ marginBottom: 24 }}>
+    <Card title={`${sectionNumber}. Confirmación`} style={{ marginBottom: 24 }}>
       <Alert
         message="Atención"
         description="El cierre de un servicio es una acción importante que puede afectar a múltiples usuarios y procesos. Asegúrese de que esta solicitud ha sido coordinada con todas las partes interesadas."
@@ -27,7 +27,7 @@ function ConfirmacionCierreSection() {
       >
         <Checkbox>
           <Text>
-            <Text strong>4.1 </Text>
+            <Text strong>{sectionNumber}.1 </Text>
             Confirmo que deseo solicitar el cierre de este servicio y que he coordinado con las áreas afectadas.
           </Text>
         </Checkbox>

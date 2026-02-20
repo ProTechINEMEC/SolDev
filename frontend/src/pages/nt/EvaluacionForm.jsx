@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
+import dayjs from 'dayjs'
 import {
   Card, Typography, Button, Space, Steps, Form, Input, Select, Radio,
-  message, Spin, Alert, Divider, Row, Col, InputNumber,
+  message, Spin, Alert, Divider, Row, Col, InputNumber, DatePicker,
   Table, Tag, Modal, List, Tooltip, Transfer, Checkbox
 } from 'antd'
 import {
@@ -19,27 +20,8 @@ const { Title, Text, Paragraph } = Typography
 const { TextArea } = Input
 const { Step } = Steps
 
-// Phase colors for Gantt chart
-const phaseColors = {
-  analisis: '#1890ff',
-  diseno: '#722ed1',
-  desarrollo: '#52c41a',
-  pruebas: '#faad14',
-  documentacion: '#13c2c2',
-  entrega: '#eb2f96'
-}
-
-const phaseLabels = {
-  analisis: 'Análisis',
-  diseno: 'Diseño',
-  desarrollo: 'Desarrollo',
-  pruebas: 'Pruebas',
-  documentacion: 'Documentación',
-  entrega: 'Entrega'
-}
-
 function EvaluacionForm() {
-  const { solicitudId } = useParams()
+  const { codigo } = useParams()
   const navigate = useNavigate()
 
   const [loading, setLoading] = useState(true)
@@ -50,16 +32,18 @@ function EvaluacionForm() {
 
   // Form states
   const [resumenForm] = Form.useForm()
+  const recomendacionValue = Form.useWatch('recomendacion', resumenForm)
   const [cronogramaData, setCronogramaData] = useState({
     tareas: [],
     liderId: null,
-    equipoIds: []  // Selected team member IDs
+    equipoIds: [],  // Selected team member IDs
+    fases: []  // Custom phases for this project
   })
+  const [newFase, setNewFase] = useState('')  // For adding new phases
   const [estimacionData, setEstimacionData] = useState({
-    desarrollo_interno: [],
-    infraestructura: [],
-    servicios_externos: [],
-    contingencia_porcentaje: 10
+    id: null,
+    items: [],  // Each item: { concepto, subtotal, iva }
+    notas: ''
   })
   const [equipo, setEquipo] = useState([])
   const [ntUsers, setNtUsers] = useState([])
@@ -73,16 +57,16 @@ function EvaluacionForm() {
     loadData()
     loadNtUsers()
     loadTemplates()
-  }, [solicitudId])
+  }, [codigo])
 
   const loadData = async () => {
     try {
       // Load solicitud
-      const solicitudRes = await solicitudesApi.get(solicitudId)
+      const solicitudRes = await solicitudesApi.get(codigo)
       setSolicitud(solicitudRes.data.solicitud)
 
       // Try to load existing evaluation
-      const evalRes = await evaluacionesApi.getBySolicitud(solicitudId)
+      const evalRes = await evaluacionesApi.getBySolicitud(codigo)
       if (evalRes.data.evaluacion) {
         setEvaluacion(evalRes.data.evaluacion)
 
@@ -92,7 +76,10 @@ function EvaluacionForm() {
           recomendacion: evalRes.data.evaluacion.recomendacion,
           justificacion_recomendacion: evalRes.data.evaluacion.justificacion_recomendacion,
           riesgos_identificados: evalRes.data.evaluacion.riesgos_identificados,
-          notas_adicionales: evalRes.data.evaluacion.notas_adicionales
+          notas_adicionales: evalRes.data.evaluacion.notas_adicionales,
+          fecha_inicio_posible: evalRes.data.evaluacion.fecha_inicio_posible
+            ? dayjs(evalRes.data.evaluacion.fecha_inicio_posible)
+            : null
         })
 
         // Load cronograma
@@ -100,37 +87,69 @@ function EvaluacionForm() {
           // Find the project leader from equipo
           const lider = evalRes.data.equipo?.find(m => m.es_lider)
           const cronograma = evalRes.data.cronograma
+          const tareas = (evalRes.data.tareas || []).map(t => ({
+            id: t.id,
+            nombre: t.titulo || t.nombre,
+            duracion_dias: t.duracion_dias || 1,
+            fase: t.fase || '',
+            progreso: t.progreso || 0,
+            dependencias: t.dependencias || [],
+            orden: t.orden,
+            asignado_id: t.asignado_id,
+            asignados_ids: t.asignados_ids || []
+          }))
+          // Extract unique phases from tasks or use stored phases
+          const existingFases = cronograma.fases || [...new Set(tareas.map(t => t.fase).filter(Boolean))]
           setCronogramaData({
             id: cronograma.id,
             nombre: cronograma.nombre,
             equipoIds: cronograma.equipo_ids || [],
-            tareas: (evalRes.data.tareas || []).map(t => ({
-              id: t.id,
-              nombre: t.titulo || t.nombre,
-              duracion_dias: t.duracion_dias || 1,
-              fase: t.fase || 'desarrollo',
-              progreso: t.progreso || 0,
-              dependencias: t.dependencias || [],
-              orden: t.orden,
-              asignado_id: t.asignado_id,
-              asignados_ids: t.asignados_ids || []
-            })),
+            tareas,
+            fases: existingFases,
             liderId: lider?.usuario_id || null
           })
         }
 
-        // Load estimacion
+        // Load estimacion - convert from backend format to simple items
         if (evalRes.data.estimacion) {
           const est = evalRes.data.estimacion
+          // Combine all items from different categories into simple format
+          const allItems = []
+
+          const desarrolloItems = typeof est.desarrollo_interno === 'string'
+            ? JSON.parse(est.desarrollo_interno) : est.desarrollo_interno || []
+          desarrolloItems.forEach(item => {
+            allItems.push({
+              concepto: item.concepto || '',
+              subtotal: item.subtotal || 0,
+              iva: item.iva || 0
+            })
+          })
+
+          const infraItems = typeof est.infraestructura === 'string'
+            ? JSON.parse(est.infraestructura) : est.infraestructura || []
+          infraItems.forEach(item => {
+            allItems.push({
+              concepto: item.concepto || '',
+              subtotal: item.subtotal || 0,
+              iva: item.iva || 0
+            })
+          })
+
+          const externosItems = typeof est.servicios_externos === 'string'
+            ? JSON.parse(est.servicios_externos) : est.servicios_externos || []
+          externosItems.forEach(item => {
+            allItems.push({
+              concepto: item.concepto || '',
+              subtotal: item.monto || 0,
+              iva: item.iva || 0
+            })
+          })
+
           setEstimacionData({
             id: est.id,
-            desarrollo_interno: typeof est.desarrollo_interno === 'string'
-              ? JSON.parse(est.desarrollo_interno) : est.desarrollo_interno || [],
-            infraestructura: typeof est.infraestructura === 'string'
-              ? JSON.parse(est.infraestructura) : est.infraestructura || [],
-            servicios_externos: typeof est.servicios_externos === 'string'
-              ? JSON.parse(est.servicios_externos) : est.servicios_externos || [],
-            contingencia_porcentaje: est.contingencia_porcentaje || 10
+            items: allItems,
+            notas: est.notas || ''
           })
         }
 
@@ -173,7 +192,7 @@ function EvaluacionForm() {
         message.success('Resumen actualizado')
       } else {
         const res = await evaluacionesApi.create({
-          solicitud_id: parseInt(solicitudId),
+          solicitud_codigo: codigo,
           ...values
         })
         setEvaluacion(res.data.evaluacion)
@@ -197,9 +216,13 @@ function EvaluacionForm() {
       const res = await cronogramasApi.getTemplate(selectedTemplate)
       const template = res.data.template
 
+      // Extract unique phases from template tasks
+      const templateFases = [...new Set(template.tareas.map(t => t.fase).filter(Boolean))]
+
       setCronogramaData(prev => ({
         ...prev,
         nombre: template.nombre,
+        fases: templateFases.length > 0 ? templateFases : prev.fases,
         tareas: template.tareas.map(t => ({
           ...t,
           id: t.id || `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -261,37 +284,54 @@ function EvaluacionForm() {
 
     setSaving(true)
     try {
-      const data = {
-        evaluacion_id: evaluacion.id,
-        nombre: cronogramaData.nombre || 'Cronograma del Proyecto',
-        equipo_ids: cronogramaData.equipoIds,
-        tareas: cronogramaData.tareas.map((t, i) => ({
-          nombre: t.nombre.trim(),
-          duracion_dias: t.duracion_dias || 1,
-          fase: t.fase || 'desarrollo',
-          progreso: t.progreso || 0,
-          dependencias: t.dependencias || [],
-          orden: i,
-          asignado_id: t.asignado_id || null,
-          asignados_ids: t.asignados_ids || []
-        }))
-      }
+      const tareas = cronogramaData.tareas.map((t, i) => ({
+        nombre: t.nombre.trim(),
+        duracion_dias: t.duracion_dias || 1,
+        fase: t.fase || '',
+        progreso: t.progreso || 0,
+        dependencias: t.dependencias || [],
+        orden: i,
+        asignado_id: t.asignado_id || null,
+        asignados_ids: t.asignados_ids || []
+      }))
 
       if (cronogramaData.id) {
-        await cronogramasApi.update(cronogramaData.id, data)
+        // Update - don't send evaluacion_id
+        const updateData = {
+          nombre: cronogramaData.nombre || 'Cronograma del Proyecto',
+          equipo_ids: cronogramaData.equipoIds,
+          fases: cronogramaData.fases,
+          tareas
+        }
+        await cronogramasApi.update(cronogramaData.id, updateData)
         message.success('Cronograma actualizado')
       } else {
+        // Create - include evaluacion_id
+        const createData = {
+          evaluacion_id: evaluacion.id,
+          nombre: cronogramaData.nombre || 'Cronograma del Proyecto',
+          equipo_ids: cronogramaData.equipoIds,
+          fases: cronogramaData.fases,
+          tareas
+        }
         try {
-          const res = await cronogramasApi.create(data)
+          const res = await cronogramasApi.create(createData)
           setCronogramaData(prev => ({ ...prev, id: res.data.cronograma.id }))
           message.success('Cronograma guardado')
         } catch (createError) {
           // If cronograma already exists, try to get its ID and update instead
           if (createError.message?.includes('Ya existe')) {
-            const existingRes = await evaluacionesApi.getBySolicitud(solicitudId)
+            const existingRes = await evaluacionesApi.getBySolicitud(codigo)
             if (existingRes.data.cronograma?.id) {
-              setCronogramaData(prev => ({ ...prev, id: existingRes.data.cronograma.id }))
-              await cronogramasApi.update(existingRes.data.cronograma.id, data)
+              const existingId = existingRes.data.cronograma.id
+              setCronogramaData(prev => ({ ...prev, id: existingId }))
+              const updateData = {
+                nombre: cronogramaData.nombre || 'Cronograma del Proyecto',
+                equipo_ids: cronogramaData.equipoIds,
+                fases: cronogramaData.fases,
+                tareas
+              }
+              await cronogramasApi.update(existingId, updateData)
               message.success('Cronograma actualizado')
             } else {
               throw createError
@@ -320,18 +360,38 @@ function EvaluacionForm() {
       return
     }
 
+    // Store all items in servicios_externos format (simplest structure)
+    const servicios_externos = estimacionData.items.map(item => ({
+      concepto: item.concepto || '',
+      monto: item.subtotal || 0,
+      iva: item.iva || 0,
+      proveedor: ''
+    }))
+
     setSaving(true)
     try {
-      const data = {
-        evaluacion_id: evaluacion.id,
-        ...estimacionData
-      }
-
       if (estimacionData.id) {
-        await estimacionesApi.update(estimacionData.id, data)
+        // Update - don't send evaluacion_id
+        const updateData = {
+          desarrollo_interno: [],
+          infraestructura: [],
+          servicios_externos,
+          contingencia_porcentaje: 0,
+          notas: estimacionData.notas
+        }
+        await estimacionesApi.update(estimacionData.id, updateData)
         message.success('Estimación actualizada')
       } else {
-        const res = await estimacionesApi.create(data)
+        // Create - include evaluacion_id
+        const createData = {
+          evaluacion_id: evaluacion.id,
+          desarrollo_interno: [],
+          infraestructura: [],
+          servicios_externos,
+          contingencia_porcentaje: 0,
+          notas: estimacionData.notas
+        }
+        const res = await estimacionesApi.create(createData)
         setEstimacionData(prev => ({ ...prev, id: res.data.estimacion.id }))
         message.success('Estimación guardada')
       }
@@ -359,7 +419,7 @@ function EvaluacionForm() {
         try {
           await evaluacionesApi.enviar(evaluacion.id)
           message.success('Evaluación enviada a Gerencia')
-          navigate(`/nt/solicitudes/${solicitudId}`)
+          navigate(`/nt/solicitudes/${codigo}`)
         } catch (error) {
           message.error(error.message || 'Error al enviar')
         } finally {
@@ -370,15 +430,11 @@ function EvaluacionForm() {
   }
 
   // Calculate cost totals
+  // Calculate total from all items
   const calculateTotals = () => {
-    const desarrollo = estimacionData.desarrollo_interno.reduce((sum, item) => sum + (item.subtotal || 0), 0)
-    const infraestructura = estimacionData.infraestructura.reduce((sum, item) => sum + (item.subtotal || 0), 0)
-    const externos = estimacionData.servicios_externos.reduce((sum, item) => sum + (item.monto || 0), 0)
-    const subtotal = desarrollo + infraestructura + externos
-    const contingencia = subtotal * (estimacionData.contingencia_porcentaje / 100)
-    const total = subtotal + contingencia
-
-    return { desarrollo, infraestructura, externos, subtotal, contingencia, total }
+    const items = estimacionData.items || []
+    const totalCompleto = items.reduce((sum, item) => sum + (item.subtotal || 0) + (item.iva || 0), 0)
+    return { total: totalCompleto }
   }
 
   const formatCOP = (value) => {
@@ -404,7 +460,7 @@ function EvaluacionForm() {
 
   return (
     <div>
-      <Link to={`/nt/solicitudes/${solicitudId}`}>
+      <Link to={`/nt/solicitudes/${codigo}`}>
         <Button icon={<ArrowLeftOutlined />} style={{ marginBottom: 16 }}>Volver a Solicitud</Button>
       </Link>
 
@@ -471,6 +527,21 @@ function EvaluacionForm() {
                     </Space>
                   </Radio.Group>
                 </Form.Item>
+
+                {/* Show possible start date only for aprobar/aplazar */}
+                {(recomendacionValue === 'aprobar' || recomendacionValue === 'aplazar') && (
+                  <Form.Item
+                    name="fecha_inicio_posible"
+                    label="Fecha de Inicio Posible"
+                    tooltip="Fecha sugerida para iniciar el proyecto si es aprobado"
+                  >
+                    <DatePicker
+                      style={{ width: '100%' }}
+                      placeholder="Seleccione fecha tentativa"
+                      format="DD/MM/YYYY"
+                    />
+                  </Form.Item>
+                )}
               </Col>
               <Col xs={24} md={12}>
                 <Form.Item
@@ -566,170 +637,232 @@ function EvaluacionForm() {
               )}
             </Card>
 
-            {/* Step 1b: Tasks */}
+            {/* Step 1b: Phases */}
             <Card
               size="small"
-              title={<><CalendarOutlined /> Paso 2: Tareas del Proyecto</>}
+              title={<><CalendarOutlined /> Paso 2: Fases del Proyecto</>}
               style={{ marginBottom: 16 }}
-              extra={
-                <Space>
-                  <Button size="small" icon={<CalendarOutlined />} onClick={() => setTemplateModalVisible(true)}>
-                    Usar Plantilla
-                  </Button>
-                  <Button
-                    size="small"
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={() => {
+            >
+              <div style={{ marginBottom: 12 }}>
+                <Text type="secondary">
+                  Define las fases del proyecto en orden. Las tareas se organizarán según estas fases.
+                </Text>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                {cronogramaData.fases.map((fase, index) => (
+                  <Tag
+                    key={fase}
+                    closable={evaluacion?.estado !== 'enviado'}
+                    onClose={() => {
                       setCronogramaData(prev => ({
                         ...prev,
-                        tareas: [...prev.tareas, {
-                          id: `task-${Date.now()}`,
-                          nombre: 'Nueva Tarea',
-                          duracion_dias: 5,
-                          fase: 'desarrollo',
-                          progreso: 0,
-                          dependencias: [],
-                          asignado_id: null,
-                          asignados_ids: []
-                        }]
+                        fases: prev.fases.filter((_, i) => i !== index),
+                        // Clear fase from tasks that used this phase
+                        tareas: prev.tareas.map(t => t.fase === fase ? { ...t, fase: '' } : t)
                       }))
                     }}
+                    style={{ padding: '4px 8px', fontSize: 13 }}
                   >
-                    Agregar Tarea
-                  </Button>
-                </Space>
-              }
-            >
-              {cronogramaData.tareas.length > 0 ? (
-                <Table
-                  dataSource={cronogramaData.tareas}
-                  rowKey="id"
-                  pagination={false}
-                  size="small"
-                  scroll={{ x: 900 }}
-                  columns={[
-                    {
-                      title: 'Tarea',
-                      dataIndex: 'nombre',
-                      width: 200,
-                      render: (text, record, index) => (
-                        <Input
-                          value={text}
-                          onChange={(e) => {
-                            const newTareas = [...cronogramaData.tareas]
-                            newTareas[index].nombre = e.target.value
-                            setCronogramaData(prev => ({ ...prev, tareas: newTareas }))
-                          }}
-                          disabled={evaluacion?.estado === 'enviado'}
-                        />
-                      )
-                    },
-                    {
-                      title: 'Fase',
-                      dataIndex: 'fase',
-                      width: 130,
-                      render: (fase, record, index) => (
-                        <Select
-                          value={fase}
-                          style={{ width: '100%' }}
-                          onChange={(value) => {
-                            const newTareas = [...cronogramaData.tareas]
-                            newTareas[index].fase = value
-                            setCronogramaData(prev => ({ ...prev, tareas: newTareas }))
-                          }}
-                          disabled={evaluacion?.estado === 'enviado'}
-                        >
-                          {Object.entries(phaseLabels).map(([key, label]) => (
-                            <Select.Option key={key} value={key}>
-                              <Tag color={phaseColors[key]} style={{ margin: 0 }}>{label}</Tag>
-                            </Select.Option>
-                          ))}
-                        </Select>
-                      )
-                    },
-                    {
-                      title: 'Días',
-                      dataIndex: 'duracion_dias',
-                      width: 80,
-                      render: (duracion, record, index) => (
-                        <InputNumber
-                          value={duracion}
-                          min={1}
-                          max={365}
-                          style={{ width: '100%' }}
-                          onChange={(value) => {
-                            const newTareas = [...cronogramaData.tareas]
-                            newTareas[index].duracion_dias = value || 1
-                            setCronogramaData(prev => ({ ...prev, tareas: newTareas }))
-                          }}
-                          disabled={evaluacion?.estado === 'enviado'}
-                        />
-                      )
-                    },
-                    {
-                      title: 'Asignados',
-                      dataIndex: 'asignados_ids',
-                      width: 200,
-                      render: (asignados_ids, record, index) => (
-                        <Select
-                          mode="multiple"
-                          value={asignados_ids || []}
-                          style={{ width: '100%' }}
-                          placeholder="Sin asignar"
-                          onChange={(values) => {
-                            const newTareas = [...cronogramaData.tareas]
-                            newTareas[index].asignados_ids = values
-                            setCronogramaData(prev => ({ ...prev, tareas: newTareas }))
-                          }}
-                          disabled={evaluacion?.estado === 'enviado' || cronogramaData.equipoIds.length === 0}
-                          maxTagCount={2}
-                          maxTagPlaceholder={(omitted) => `+${omitted.length}`}
-                          notFoundContent={cronogramaData.equipoIds.length === 0 ? "Primero seleccione el equipo" : "Sin opciones"}
-                        >
-                          {ntUsers.filter(u => cronogramaData.equipoIds.includes(u.id)).map(user => (
-                            <Select.Option key={user.id} value={user.id}>
-                              {user.nombre.split(' ')[0]}
-                            </Select.Option>
-                          ))}
-                        </Select>
-                      )
-                    },
-                    {
-                      title: '',
-                      width: 50,
-                      fixed: 'right',
-                      render: (_, record, index) => (
-                        <Button
-                          type="text"
-                          danger
-                          icon={<DeleteOutlined />}
-                          onClick={() => {
-                            const newTareas = cronogramaData.tareas.filter((_, i) => i !== index)
-                            setCronogramaData(prev => ({ ...prev, tareas: newTareas }))
-                          }}
-                          disabled={evaluacion?.estado === 'enviado'}
-                        />
-                      )
+                    Fase {index + 1}: {fase}
+                  </Tag>
+                ))}
+              </div>
+              <Space.Compact style={{ width: '100%', maxWidth: 300 }}>
+                <Input
+                  placeholder="Nueva fase..."
+                  value={newFase}
+                  onChange={(e) => setNewFase(e.target.value)}
+                  onPressEnter={() => {
+                    if (newFase.trim() && !cronogramaData.fases.includes(newFase.trim())) {
+                      setCronogramaData(prev => ({
+                        ...prev,
+                        fases: [...prev.fases, newFase.trim()]
+                      }))
+                      setNewFase('')
                     }
-                  ]}
+                  }}
+                  disabled={evaluacion?.estado === 'enviado'}
                 />
-              ) : (
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => {
+                    if (newFase.trim() && !cronogramaData.fases.includes(newFase.trim())) {
+                      setCronogramaData(prev => ({
+                        ...prev,
+                        fases: [...prev.fases, newFase.trim()]
+                      }))
+                      setNewFase('')
+                    }
+                  }}
+                  disabled={evaluacion?.estado === 'enviado' || !newFase.trim()}
+                >
+                  Agregar
+                </Button>
+              </Space.Compact>
+            </Card>
+
+            {/* Step 1c: Tasks by Phase */}
+            <Card
+              size="small"
+              title={<><FileTextOutlined /> Paso 3: Tareas del Proyecto</>}
+              style={{ marginBottom: 16 }}
+            >
+              {cronogramaData.fases.length === 0 ? (
                 <Alert
-                  message="Sin Tareas"
-                  description="Use una plantilla o agregue tareas manualmente para crear el cronograma del proyecto."
-                  type="info"
+                  message="Sin Fases"
+                  description="Primero defina las fases del proyecto en el Paso 2."
+                  type="warning"
                   showIcon
                 />
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {cronogramaData.fases.map((fase, faseIndex) => {
+                    const faseTareas = cronogramaData.tareas.filter(t => t.fase === fase)
+                    return (
+                      <Card
+                        key={fase}
+                        size="small"
+                        type="inner"
+                        title={<Text strong>Fase {faseIndex + 1}: {fase}</Text>}
+                        extra={
+                          <Button
+                            size="small"
+                            type="primary"
+                            icon={<PlusOutlined />}
+                            onClick={() => {
+                              setCronogramaData(prev => ({
+                                ...prev,
+                                tareas: [...prev.tareas, {
+                                  id: `task-${Date.now()}`,
+                                  nombre: '',
+                                  duracion_dias: 1,
+                                  fase: fase,
+                                  progreso: 0,
+                                  dependencias: [],
+                                  asignado_id: null,
+                                  asignados_ids: []
+                                }]
+                              }))
+                            }}
+                            disabled={evaluacion?.estado === 'enviado'}
+                          >
+                            Agregar Tarea
+                          </Button>
+                        }
+                        style={{ backgroundColor: '#fafafa' }}
+                      >
+                        {faseTareas.length > 0 ? (
+                          <Table
+                            dataSource={faseTareas}
+                            rowKey="id"
+                            pagination={false}
+                            size="small"
+                            showHeader={faseTareas.length > 0}
+                            columns={[
+                              {
+                                title: 'Tarea',
+                                dataIndex: 'nombre',
+                                render: (text, record) => (
+                                  <Input
+                                    value={text}
+                                    placeholder="Nombre de la tarea"
+                                    onChange={(e) => {
+                                      const newTareas = cronogramaData.tareas.map(t =>
+                                        t.id === record.id ? { ...t, nombre: e.target.value } : t
+                                      )
+                                      setCronogramaData(prev => ({ ...prev, tareas: newTareas }))
+                                    }}
+                                    disabled={evaluacion?.estado === 'enviado'}
+                                  />
+                                )
+                              },
+                              {
+                                title: 'Asignados',
+                                dataIndex: 'asignados_ids',
+                                width: 220,
+                                render: (asignados_ids, record) => (
+                                  <Select
+                                    mode="multiple"
+                                    value={asignados_ids || []}
+                                    style={{ width: '100%' }}
+                                    placeholder="Seleccionar"
+                                    onChange={(values) => {
+                                      const newTareas = cronogramaData.tareas.map(t =>
+                                        t.id === record.id ? { ...t, asignados_ids: values } : t
+                                      )
+                                      setCronogramaData(prev => ({ ...prev, tareas: newTareas }))
+                                    }}
+                                    disabled={evaluacion?.estado === 'enviado' || cronogramaData.equipoIds.length === 0}
+                                    maxTagCount={2}
+                                    maxTagPlaceholder={(omitted) => `+${omitted.length}`}
+                                    notFoundContent={cronogramaData.equipoIds.length === 0 ? "Primero seleccione el equipo" : "Sin opciones"}
+                                  >
+                                    {ntUsers.filter(u => cronogramaData.equipoIds.includes(u.id)).map(user => (
+                                      <Select.Option key={user.id} value={user.id}>
+                                        {user.nombre.split(' ')[0]}
+                                      </Select.Option>
+                                    ))}
+                                  </Select>
+                                )
+                              },
+                              {
+                                title: 'Días',
+                                dataIndex: 'duracion_dias',
+                                width: 80,
+                                render: (duracion, record) => (
+                                  <InputNumber
+                                    value={duracion}
+                                    min={1}
+                                    max={365}
+                                    style={{ width: '100%' }}
+                                    onChange={(value) => {
+                                      const newTareas = cronogramaData.tareas.map(t =>
+                                        t.id === record.id ? { ...t, duracion_dias: value || 1 } : t
+                                      )
+                                      setCronogramaData(prev => ({ ...prev, tareas: newTareas }))
+                                    }}
+                                    disabled={evaluacion?.estado === 'enviado'}
+                                  />
+                                )
+                              },
+                              {
+                                title: '',
+                                width: 50,
+                                render: (_, record) => (
+                                  <Button
+                                    type="text"
+                                    danger
+                                    icon={<DeleteOutlined />}
+                                    onClick={() => {
+                                      const newTareas = cronogramaData.tareas.filter(t => t.id !== record.id)
+                                      setCronogramaData(prev => ({ ...prev, tareas: newTareas }))
+                                    }}
+                                    disabled={evaluacion?.estado === 'enviado'}
+                                  />
+                                )
+                              }
+                            ]}
+                          />
+                        ) : (
+                          <Text type="secondary" style={{ display: 'block', textAlign: 'center', padding: '12px 0' }}>
+                            Sin tareas en esta fase
+                          </Text>
+                        )}
+                      </Card>
+                    )
+                  })}
+                </div>
               )}
             </Card>
 
-            {/* Step 1c: Workload Visualization */}
+            {/* Step 1d: Workload Visualization */}
             {cronogramaData.equipoIds.length > 0 && cronogramaData.tareas.length > 0 && (
               <WorkloadChart
                 equipo={ntUsers.filter(u => cronogramaData.equipoIds.includes(u.id))}
                 tareas={cronogramaData.tareas}
                 liderId={cronogramaData.liderId}
+                fases={cronogramaData.fases}
               />
             )}
 
@@ -747,24 +880,22 @@ function EvaluacionForm() {
         {/* Step 2: Estimación de Costos */}
         {currentStep === 2 && (
           <div>
-            <Divider orientation="left">Desarrollo Interno</Divider>
-            <Table
-              dataSource={estimacionData.desarrollo_interno}
-              rowKey={(r, i) => i}
-              pagination={false}
+            {/* Items Table */}
+            <Card
               size="small"
-              footer={() => (
+              title="Detalle de Costos"
+              extra={
                 <Button
-                  type="dashed"
+                  type="primary"
                   icon={<PlusOutlined />}
+                  size="small"
                   onClick={() => {
                     setEstimacionData(prev => ({
                       ...prev,
-                      desarrollo_interno: [...prev.desarrollo_interno, {
+                      items: [...prev.items, {
                         concepto: '',
-                        horas: 0,
-                        tarifa_hora: 50000,
-                        subtotal: 0
+                        subtotal: 0,
+                        iva: 0
                       }]
                     }))
                   }}
@@ -772,324 +903,113 @@ function EvaluacionForm() {
                 >
                   Agregar Item
                 </Button>
-              )}
-              columns={[
-                {
-                  title: 'Concepto',
-                  dataIndex: 'concepto',
-                  render: (text, record, index) => (
-                    <Input
-                      value={text}
-                      placeholder="Ej: Desarrollo Frontend"
-                      onChange={(e) => {
-                        const newItems = [...estimacionData.desarrollo_interno]
-                        newItems[index].concepto = e.target.value
-                        setEstimacionData(prev => ({ ...prev, desarrollo_interno: newItems }))
-                      }}
-                      disabled={evaluacion?.estado === 'enviado'}
-                    />
-                  )
-                },
-                {
-                  title: 'Horas',
-                  dataIndex: 'horas',
-                  width: 100,
-                  render: (val, record, index) => (
-                    <InputNumber
-                      value={val}
-                      min={0}
-                      onChange={(v) => {
-                        const newItems = [...estimacionData.desarrollo_interno]
-                        newItems[index].horas = v || 0
-                        newItems[index].subtotal = (v || 0) * newItems[index].tarifa_hora
-                        setEstimacionData(prev => ({ ...prev, desarrollo_interno: newItems }))
-                      }}
-                      disabled={evaluacion?.estado === 'enviado'}
-                    />
-                  )
-                },
-                {
-                  title: 'Tarifa/Hora (COP)',
-                  dataIndex: 'tarifa_hora',
-                  width: 150,
-                  render: (val, record, index) => (
-                    <InputNumber
-                      value={val}
-                      min={0}
-                      step={10000}
-                      formatter={v => `$ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                      parser={v => v.replace(/\$\s?|(,*)/g, '')}
-                      onChange={(v) => {
-                        const newItems = [...estimacionData.desarrollo_interno]
-                        newItems[index].tarifa_hora = v || 0
-                        newItems[index].subtotal = newItems[index].horas * (v || 0)
-                        setEstimacionData(prev => ({ ...prev, desarrollo_interno: newItems }))
-                      }}
-                      disabled={evaluacion?.estado === 'enviado'}
-                    />
-                  )
-                },
-                {
-                  title: 'Subtotal',
-                  dataIndex: 'subtotal',
-                  width: 150,
-                  render: (val) => <Text strong>{formatCOP(val || 0)}</Text>
-                },
-                {
-                  title: '',
-                  width: 50,
-                  render: (_, record, index) => (
-                    <Button
-                      type="text"
-                      danger
-                      icon={<DeleteOutlined />}
-                      onClick={() => {
-                        const newItems = estimacionData.desarrollo_interno.filter((_, i) => i !== index)
-                        setEstimacionData(prev => ({ ...prev, desarrollo_interno: newItems }))
-                      }}
-                      disabled={evaluacion?.estado === 'enviado'}
-                    />
-                  )
-                }
-              ]}
-            />
-
-            <Divider orientation="left">Infraestructura</Divider>
-            <Table
-              dataSource={estimacionData.infraestructura}
-              rowKey={(r, i) => i}
-              pagination={false}
-              size="small"
-              footer={() => (
-                <Button
-                  type="dashed"
-                  icon={<PlusOutlined />}
-                  onClick={() => {
-                    setEstimacionData(prev => ({
-                      ...prev,
-                      infraestructura: [...prev.infraestructura, {
-                        concepto: '',
-                        descripcion: '',
-                        costo_unico: 0,
-                        subtotal: 0
-                      }]
-                    }))
-                  }}
-                  disabled={evaluacion?.estado === 'enviado'}
-                >
-                  Agregar Item
-                </Button>
-              )}
-              columns={[
-                {
-                  title: 'Concepto',
-                  dataIndex: 'concepto',
-                  render: (text, record, index) => (
-                    <Input
-                      value={text}
-                      placeholder="Ej: Servidor AWS"
-                      onChange={(e) => {
-                        const newItems = [...estimacionData.infraestructura]
-                        newItems[index].concepto = e.target.value
-                        setEstimacionData(prev => ({ ...prev, infraestructura: newItems }))
-                      }}
-                      disabled={evaluacion?.estado === 'enviado'}
-                    />
-                  )
-                },
-                {
-                  title: 'Costo (COP)',
-                  dataIndex: 'costo_unico',
-                  width: 180,
-                  render: (val, record, index) => (
-                    <InputNumber
-                      value={val}
-                      min={0}
-                      step={100000}
-                      style={{ width: '100%' }}
-                      formatter={v => `$ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                      parser={v => v.replace(/\$\s?|(,*)/g, '')}
-                      onChange={(v) => {
-                        const newItems = [...estimacionData.infraestructura]
-                        newItems[index].costo_unico = v || 0
-                        newItems[index].subtotal = v || 0
-                        setEstimacionData(prev => ({ ...prev, infraestructura: newItems }))
-                      }}
-                      disabled={evaluacion?.estado === 'enviado'}
-                    />
-                  )
-                },
-                {
-                  title: 'Subtotal',
-                  dataIndex: 'subtotal',
-                  width: 150,
-                  render: (val) => <Text strong>{formatCOP(val || 0)}</Text>
-                },
-                {
-                  title: '',
-                  width: 50,
-                  render: (_, record, index) => (
-                    <Button
-                      type="text"
-                      danger
-                      icon={<DeleteOutlined />}
-                      onClick={() => {
-                        const newItems = estimacionData.infraestructura.filter((_, i) => i !== index)
-                        setEstimacionData(prev => ({ ...prev, infraestructura: newItems }))
-                      }}
-                      disabled={evaluacion?.estado === 'enviado'}
-                    />
-                  )
-                }
-              ]}
-            />
-
-            <Divider orientation="left">Servicios Externos</Divider>
-            <Table
-              dataSource={estimacionData.servicios_externos}
-              rowKey={(r, i) => i}
-              pagination={false}
-              size="small"
-              footer={() => (
-                <Button
-                  type="dashed"
-                  icon={<PlusOutlined />}
-                  onClick={() => {
-                    setEstimacionData(prev => ({
-                      ...prev,
-                      servicios_externos: [...prev.servicios_externos, {
-                        concepto: '',
-                        proveedor: '',
-                        monto: 0
-                      }]
-                    }))
-                  }}
-                  disabled={evaluacion?.estado === 'enviado'}
-                >
-                  Agregar Item
-                </Button>
-              )}
-              columns={[
-                {
-                  title: 'Concepto',
-                  dataIndex: 'concepto',
-                  render: (text, record, index) => (
-                    <Input
-                      value={text}
-                      placeholder="Ej: Consultoría externa"
-                      onChange={(e) => {
-                        const newItems = [...estimacionData.servicios_externos]
-                        newItems[index].concepto = e.target.value
-                        setEstimacionData(prev => ({ ...prev, servicios_externos: newItems }))
-                      }}
-                      disabled={evaluacion?.estado === 'enviado'}
-                    />
-                  )
-                },
-                {
-                  title: 'Proveedor',
-                  dataIndex: 'proveedor',
-                  width: 200,
-                  render: (text, record, index) => (
-                    <Input
-                      value={text}
-                      placeholder="Nombre del proveedor"
-                      onChange={(e) => {
-                        const newItems = [...estimacionData.servicios_externos]
-                        newItems[index].proveedor = e.target.value
-                        setEstimacionData(prev => ({ ...prev, servicios_externos: newItems }))
-                      }}
-                      disabled={evaluacion?.estado === 'enviado'}
-                    />
-                  )
-                },
-                {
-                  title: 'Monto (COP)',
-                  dataIndex: 'monto',
-                  width: 180,
-                  render: (val, record, index) => (
-                    <InputNumber
-                      value={val}
-                      min={0}
-                      step={100000}
-                      style={{ width: '100%' }}
-                      formatter={v => `$ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                      parser={v => v.replace(/\$\s?|(,*)/g, '')}
-                      onChange={(v) => {
-                        const newItems = [...estimacionData.servicios_externos]
-                        newItems[index].monto = v || 0
-                        setEstimacionData(prev => ({ ...prev, servicios_externos: newItems }))
-                      }}
-                      disabled={evaluacion?.estado === 'enviado'}
-                    />
-                  )
-                },
-                {
-                  title: '',
-                  width: 50,
-                  render: (_, record, index) => (
-                    <Button
-                      type="text"
-                      danger
-                      icon={<DeleteOutlined />}
-                      onClick={() => {
-                        const newItems = estimacionData.servicios_externos.filter((_, i) => i !== index)
-                        setEstimacionData(prev => ({ ...prev, servicios_externos: newItems }))
-                      }}
-                      disabled={evaluacion?.estado === 'enviado'}
-                    />
-                  )
-                }
-              ]}
-            />
-
-            <Divider />
-
-            <Row gutter={16}>
-              <Col xs={24} md={12}>
-                <Form.Item label="Contingencia (%)">
-                  <InputNumber
-                    value={estimacionData.contingencia_porcentaje}
-                    min={0}
-                    max={50}
-                    formatter={v => `${v}%`}
-                    parser={v => v.replace('%', '')}
-                    onChange={(v) => setEstimacionData(prev => ({ ...prev, contingencia_porcentaje: v || 0 }))}
-                    disabled={evaluacion?.estado === 'enviado'}
-                  />
-                </Form.Item>
-              </Col>
-              <Col xs={24} md={12}>
-                <Card size="small">
-                  <Row>
-                    <Col span={16}>Desarrollo Interno:</Col>
-                    <Col span={8} style={{ textAlign: 'right' }}>{formatCOP(totals.desarrollo)}</Col>
-                  </Row>
-                  <Row>
-                    <Col span={16}>Infraestructura:</Col>
-                    <Col span={8} style={{ textAlign: 'right' }}>{formatCOP(totals.infraestructura)}</Col>
-                  </Row>
-                  <Row>
-                    <Col span={16}>Servicios Externos:</Col>
-                    <Col span={8} style={{ textAlign: 'right' }}>{formatCOP(totals.externos)}</Col>
-                  </Row>
-                  <Divider style={{ margin: '8px 0' }} />
-                  <Row>
-                    <Col span={16}>Subtotal:</Col>
-                    <Col span={8} style={{ textAlign: 'right' }}>{formatCOP(totals.subtotal)}</Col>
-                  </Row>
-                  <Row>
-                    <Col span={16}>Contingencia ({estimacionData.contingencia_porcentaje}%):</Col>
-                    <Col span={8} style={{ textAlign: 'right' }}>{formatCOP(totals.contingencia)}</Col>
-                  </Row>
-                  <Divider style={{ margin: '8px 0' }} />
-                  <Row>
-                    <Col span={16}><Text strong>TOTAL:</Text></Col>
-                    <Col span={8} style={{ textAlign: 'right' }}><Text strong>{formatCOP(totals.total)}</Text></Col>
-                  </Row>
-                </Card>
-              </Col>
-            </Row>
+              }
+            >
+              <Table
+                dataSource={estimacionData.items}
+                rowKey={(r, i) => i}
+                pagination={false}
+                size="small"
+                columns={[
+                  {
+                    title: 'Concepto',
+                    dataIndex: 'concepto',
+                    render: (text, record, index) => (
+                      <Input
+                        value={text}
+                        placeholder="Descripción del item"
+                        onChange={(e) => {
+                          const newItems = [...estimacionData.items]
+                          newItems[index].concepto = e.target.value
+                          setEstimacionData(prev => ({ ...prev, items: newItems }))
+                        }}
+                        disabled={evaluacion?.estado === 'enviado'}
+                      />
+                    )
+                  },
+                  {
+                    title: 'Subtotal',
+                    dataIndex: 'subtotal',
+                    width: 150,
+                    render: (val, record, index) => (
+                      <InputNumber
+                        value={val}
+                        min={0}
+                        style={{ width: '100%' }}
+                        formatter={v => `$ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                        parser={v => v.replace(/\$\s?|(,*)/g, '')}
+                        onChange={(v) => {
+                          const newItems = [...estimacionData.items]
+                          newItems[index].subtotal = v || 0
+                          setEstimacionData(prev => ({ ...prev, items: newItems }))
+                        }}
+                        disabled={evaluacion?.estado === 'enviado'}
+                      />
+                    )
+                  },
+                  {
+                    title: 'IVA',
+                    dataIndex: 'iva',
+                    width: 150,
+                    render: (val, record, index) => (
+                      <InputNumber
+                        value={val}
+                        min={0}
+                        style={{ width: '100%' }}
+                        formatter={v => `$ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                        parser={v => v.replace(/\$\s?|(,*)/g, '')}
+                        onChange={(v) => {
+                          const newItems = [...estimacionData.items]
+                          newItems[index].iva = v || 0
+                          setEstimacionData(prev => ({ ...prev, items: newItems }))
+                        }}
+                        disabled={evaluacion?.estado === 'enviado'}
+                      />
+                    )
+                  },
+                  {
+                    title: 'Total',
+                    width: 150,
+                    render: (_, record) => {
+                      const total = (record.subtotal || 0) + (record.iva || 0)
+                      return <Text strong>{formatCOP(total)}</Text>
+                    }
+                  },
+                  {
+                    title: '',
+                    width: 50,
+                    render: (_, record, index) => (
+                      <Button
+                        type="text"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={() => {
+                          const newItems = estimacionData.items.filter((_, i) => i !== index)
+                          setEstimacionData(prev => ({ ...prev, items: newItems }))
+                        }}
+                        disabled={evaluacion?.estado === 'enviado'}
+                      />
+                    )
+                  }
+                ]}
+                locale={{ emptyText: 'Agregue items para estimar costos' }}
+                summary={() => (
+                  <Table.Summary fixed>
+                    <Table.Summary.Row style={{ background: '#e6f7ff' }}>
+                      <Table.Summary.Cell index={0}>
+                        <Text strong style={{ fontSize: 14 }}>TOTAL</Text>
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={1} />
+                      <Table.Summary.Cell index={2} />
+                      <Table.Summary.Cell index={3}>
+                        <Text strong style={{ fontSize: 14 }}>{formatCOP(totals.total)}</Text>
+                      </Table.Summary.Cell>
+                      <Table.Summary.Cell index={4} />
+                    </Table.Summary.Row>
+                  </Table.Summary>
+                )}
+              />
+            </Card>
 
             <div style={{ marginTop: 16 }}>
               <Space>
@@ -1125,21 +1045,22 @@ function EvaluacionForm() {
                   }>
                     {evaluacion?.recomendacion?.toUpperCase()}
                   </Tag>
+                  {/* Show suggested start date if set */}
+                  {evaluacion?.fecha_inicio_posible && (
+                    <div style={{ marginTop: 12 }}>
+                      <Text strong>Fecha Inicio Recomendada: </Text>
+                      <Tag color="blue" icon={<CalendarOutlined />}>
+                        {dayjs(evaluacion.fecha_inicio_posible).format('DD/MM/YYYY')}
+                      </Tag>
+                    </div>
+                  )}
                 </Card>
               </Col>
               <Col xs={24} md={12}>
                 <Card title="Estimación de Costos" size="small">
                   <Row>
-                    <Col span={16}>Desarrollo:</Col>
-                    <Col span={8} style={{ textAlign: 'right' }}>{formatCOP(totals.desarrollo)}</Col>
-                  </Row>
-                  <Row>
-                    <Col span={16}>Infraestructura:</Col>
-                    <Col span={8} style={{ textAlign: 'right' }}>{formatCOP(totals.infraestructura)}</Col>
-                  </Row>
-                  <Row>
-                    <Col span={16}>Externos:</Col>
-                    <Col span={8} style={{ textAlign: 'right' }}>{formatCOP(totals.externos)}</Col>
+                    <Col span={16}>Items:</Col>
+                    <Col span={8} style={{ textAlign: 'right' }}>{estimacionData.items.length}</Col>
                   </Row>
                   <Divider style={{ margin: '8px 0' }} />
                   <Row>
@@ -1175,10 +1096,139 @@ function EvaluacionForm() {
                     equipo={ntUsers.filter(u => cronogramaData.equipoIds.includes(u.id))}
                     tareas={cronogramaData.tareas}
                     liderId={cronogramaData.liderId}
+                    fases={cronogramaData.fases}
                   />
                 </div>
               )}
             </Card>
+
+            {/* Monetary Benefits from Solicitud */}
+            <Title level={5} style={{ marginTop: 24, marginBottom: 16 }}>Beneficios Reportados por el Solicitante</Title>
+            <Row gutter={[24, 24]}>
+              {/* Cost Reductions */}
+              <Col xs={24} md={12}>
+                <Card title="Reducción de Costos" size="small">
+                  {solicitud?.beneficios?.analisis_costos?.reduce_costos ? (
+                    <>
+                      <Alert
+                        message="El solicitante reporta reducción de costos"
+                        type="success"
+                        showIcon
+                        icon={<CheckCircleOutlined />}
+                        style={{ marginBottom: 12 }}
+                      />
+                      {solicitud.beneficios.analisis_costos.costos_actuales?.length > 0 && (
+                        <>
+                          <Text strong style={{ display: 'block', marginBottom: 8 }}>Costos Actuales:</Text>
+                          {solicitud.beneficios.analisis_costos.costos_actuales.map((item, i) => (
+                            <Row key={i} style={{ marginBottom: 4 }}>
+                              <Col span={16}><Text>{item.descripcion || '--'}</Text></Col>
+                              <Col span={8} style={{ textAlign: 'right' }}>
+                                <Text>{formatCOP(item.monto || 0)}</Text>
+                              </Col>
+                            </Row>
+                          ))}
+                          <Divider style={{ margin: '8px 0' }} />
+                          <Row>
+                            <Col span={16}><Text strong>Total Actual:</Text></Col>
+                            <Col span={8} style={{ textAlign: 'right' }}>
+                              <Text strong>
+                                {formatCOP(solicitud.beneficios.analisis_costos.costos_actuales.reduce((sum, item) => sum + (item.monto || 0), 0))}
+                              </Text>
+                            </Col>
+                          </Row>
+                        </>
+                      )}
+                      {solicitud.beneficios.analisis_costos.costos_esperados?.length > 0 && (
+                        <>
+                          <Text strong style={{ display: 'block', marginTop: 12, marginBottom: 8 }}>Costos Esperados:</Text>
+                          {solicitud.beneficios.analisis_costos.costos_esperados.map((item, i) => (
+                            <Row key={i} style={{ marginBottom: 4 }}>
+                              <Col span={16}><Text>{item.descripcion || '--'}</Text></Col>
+                              <Col span={8} style={{ textAlign: 'right' }}>
+                                <Text>{formatCOP(item.monto || 0)}</Text>
+                              </Col>
+                            </Row>
+                          ))}
+                          <Divider style={{ margin: '8px 0' }} />
+                          <Row>
+                            <Col span={16}><Text strong>Total Esperado:</Text></Col>
+                            <Col span={8} style={{ textAlign: 'right' }}>
+                              <Text strong>
+                                {formatCOP(solicitud.beneficios.analisis_costos.costos_esperados.reduce((sum, item) => sum + (item.monto || 0), 0))}
+                              </Text>
+                            </Col>
+                          </Row>
+                        </>
+                      )}
+                      {/* Calculate and show savings */}
+                      {solicitud.beneficios.analisis_costos.costos_actuales?.length > 0 &&
+                       solicitud.beneficios.analisis_costos.costos_esperados?.length > 0 && (
+                        <>
+                          <Divider style={{ margin: '12px 0' }} />
+                          <Row style={{ background: '#f6ffed', padding: '8px', borderRadius: 4 }}>
+                            <Col span={16}><Text strong style={{ color: '#52c41a' }}>Ahorro Estimado:</Text></Col>
+                            <Col span={8} style={{ textAlign: 'right' }}>
+                              <Text strong style={{ color: '#52c41a' }}>
+                                {formatCOP(
+                                  solicitud.beneficios.analisis_costos.costos_actuales.reduce((sum, item) => sum + (item.monto || 0), 0) -
+                                  solicitud.beneficios.analisis_costos.costos_esperados.reduce((sum, item) => sum + (item.monto || 0), 0)
+                                )}
+                              </Text>
+                            </Col>
+                          </Row>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <Text type="secondary">El solicitante no reportó reducción de costos</Text>
+                  )}
+                </Card>
+              </Col>
+
+              {/* Direct Monetary Benefits */}
+              <Col xs={24} md={12}>
+                <Card title="Beneficio Monetario Directo" size="small">
+                  {solicitud?.beneficios?.beneficio_monetario?.tiene_beneficio ? (
+                    <>
+                      <Alert
+                        message="El solicitante reporta beneficio monetario directo"
+                        type="success"
+                        showIcon
+                        icon={<CheckCircleOutlined />}
+                        style={{ marginBottom: 12 }}
+                      />
+                      {solicitud.beneficios.beneficio_monetario.items?.length > 0 && (
+                        <>
+                          <Text strong style={{ display: 'block', marginBottom: 8 }}>Beneficios Identificados:</Text>
+                          {solicitud.beneficios.beneficio_monetario.items.map((item, i) => (
+                            <Row key={i} style={{ marginBottom: 4 }}>
+                              <Col span={16}><Text>{item.descripcion || '--'}</Text></Col>
+                              <Col span={8} style={{ textAlign: 'right' }}>
+                                <Text>{formatCOP(item.monto || 0)}/mes</Text>
+                              </Col>
+                            </Row>
+                          ))}
+                          <Divider style={{ margin: '8px 0' }} />
+                          <Row style={{ background: '#f6ffed', padding: '8px', borderRadius: 4 }}>
+                            <Col span={16}><Text strong style={{ color: '#52c41a' }}>Total Mensual:</Text></Col>
+                            <Col span={8} style={{ textAlign: 'right' }}>
+                              <Text strong style={{ color: '#52c41a' }}>
+                                {formatCOP(solicitud.beneficios.beneficio_monetario.total_mensual ||
+                                  solicitud.beneficios.beneficio_monetario.items.reduce((sum, item) => sum + (item.monto || 0), 0)
+                                )}/mes
+                              </Text>
+                            </Col>
+                          </Row>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <Text type="secondary">El solicitante no reportó beneficio monetario directo</Text>
+                  )}
+                </Card>
+              </Col>
+            </Row>
 
             <div style={{ marginTop: 24 }}>
               <Space>

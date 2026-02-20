@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Form, Steps, Button, Space, message, Result, Typography, Card } from 'antd'
 import { ArrowLeftOutlined, ArrowRightOutlined, SendOutlined, CheckCircleOutlined } from '@ant-design/icons'
-import { solicitudesApi } from '../../../services/api'
+import { solicitudesApi, archivosApi } from '../../../services/api'
 import {
   IdentificacionSection,
   ReporteSection,
-  CriticidadSection
+  CriticidadSection,
+  ProyectoSelectorSection
 } from '../../../components/forms/sections'
 
 const { Title, Text, Paragraph } = Typography
@@ -16,24 +17,39 @@ function ReporteFalloForm({ sessionToken, onBack, onSuccess }) {
   const [loading, setLoading] = useState(false)
   const [submittedCode, setSubmittedCode] = useState(null)
 
-  const steps = [
-    {
-      title: 'Identificación',
-      content: <IdentificacionSection form={form} />
-    },
-    {
-      title: 'Reporte',
-      content: <ReporteSection tipo="fallo" />
-    },
-    {
-      title: 'Criticidad',
-      content: <CriticidadSection />
-    }
-  ]
+  const steps = useMemo(() => {
+    let currentSection = 1
+    return [
+      {
+        key: 'identificacion',
+        title: 'Identificación',
+        sectionNumber: currentSection++,
+        content: <IdentificacionSection form={form} showSponsorQuestion={false} />
+      },
+      {
+        key: 'proyecto_referencia',
+        title: 'Proyecto',
+        sectionNumber: currentSection++,
+        content: <ProyectoSelectorSection form={form} sectionNumber={currentSection - 1} tipo="reporte_fallo" />
+      },
+      {
+        key: 'reporte',
+        title: 'Reporte',
+        sectionNumber: currentSection++,
+        content: <ReporteSection tipo="fallo" sectionNumber={currentSection - 1} />
+      },
+      {
+        key: 'criticidad',
+        title: 'Criticidad',
+        sectionNumber: currentSection++,
+        content: <CriticidadSection sectionNumber={currentSection - 1} />
+      }
+    ]
+  }, [form])
 
   const validateCurrentStep = async () => {
     try {
-      const fieldsToValidate = getFieldsForStep(currentStep)
+      const fieldsToValidate = getFieldsForStep(steps[currentStep]?.key)
       await form.validateFields(fieldsToValidate)
       return true
     } catch (error) {
@@ -41,21 +57,22 @@ function ReporteFalloForm({ sessionToken, onBack, onSuccess }) {
     }
   }
 
-  const getFieldsForStep = (step) => {
-    switch (step) {
-      case 0:
+  const getFieldsForStep = (stepKey) => {
+    switch (stepKey) {
+      case 'identificacion':
         return [
           ['identificacion', 'nombre_completo'],
           ['identificacion', 'cargo'],
           ['identificacion', 'area'],
           ['identificacion', 'operacion_contrato'],
           ['identificacion', 'correo'],
-          ['identificacion', 'cedula'],
-          ['identificacion', 'es_doliente']
+          ['identificacion', 'cedula']
         ]
-      case 1:
-        return [['reporte', 'descripcion']]
-      case 2:
+      case 'proyecto_referencia':
+        return [['proyecto_referencia', 'proyecto_id']]
+      case 'reporte':
+        return [['reporte', 'titulo'], ['reporte', 'descripcion']]
+      case 'criticidad':
         return [
           ['criticidad', 'urgencia'],
           ['criticidad', 'justificacion']
@@ -87,15 +104,37 @@ function ReporteFalloForm({ sessionToken, onBack, onSuccess }) {
       // Map form values to API format
       const solicitudData = {
         tipo: 'reporte_fallo',
-        titulo: `Fallo: ${values.reporte?.descripcion?.substring(0, 50)}...`,
+        titulo: values.reporte?.titulo,
         prioridad: values.criticidad?.urgencia || 'media',
         solicitante_session_token: sessionToken,
         identificacion: values.identificacion,
+        proyecto_referencia: values.proyecto_referencia,
         reporte: values.reporte,
         criticidad: values.criticidad
       }
 
       const response = await solicitudesApi.create(solicitudData)
+      const solicitudId = response.data.solicitud.id
+
+      // Upload files if any
+      const allFiles = []
+
+      // Collect files from reporte evidencia
+      if (values.reporte?.evidencia?.length > 0) {
+        allFiles.push(...values.reporte.evidencia.filter(f => f.originFileObj))
+      }
+
+      // Upload all collected files
+      if (allFiles.length > 0) {
+        try {
+          await archivosApi.upload('solicitud', solicitudId, allFiles, sessionToken)
+          message.success(`${allFiles.length} archivo(s) subido(s)`)
+        } catch (uploadError) {
+          console.error('Error uploading files:', uploadError)
+          message.warning('Reporte creado pero algunos archivos no se pudieron subir')
+        }
+      }
+
       setSubmittedCode(response.data.solicitud.codigo)
       message.success('Reporte de fallo enviado exitosamente')
       onSuccess?.(response.data.solicitud)
@@ -128,7 +167,7 @@ function ReporteFalloForm({ sessionToken, onBack, onSuccess }) {
             <Button
               key="status"
               type="primary"
-              onClick={() => window.location.href = `/consulta/buscar?codigo=${submittedCode}`}
+              onClick={() => window.location.href = `/consulta/${submittedCode}`}
             >
               Consultar Estado
             </Button>,
@@ -156,7 +195,7 @@ function ReporteFalloForm({ sessionToken, onBack, onSuccess }) {
       >
         {/* Render all steps but only show current one - preserves form values */}
         {steps.map((step, index) => (
-          <div key={index} style={{ display: index === currentStep ? 'block' : 'none' }}>
+          <div key={step.key} style={{ display: index === currentStep ? 'block' : 'none' }}>
             {step.content}
           </div>
         ))}

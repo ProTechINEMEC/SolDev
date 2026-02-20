@@ -48,14 +48,14 @@ function NotificationDropdown() {
       markAsRead(notification.id)
     }
 
-    // Navigate based on notification data
+    // Navigate based on notification data - check entity type and use codigo for URL
     const { datos } = notification
-    if (datos?.solicitud_id) {
-      navigate(`/nt/solicitudes/${datos.solicitud_id}`)
-    } else if (datos?.ticket_id) {
-      navigate(`/ti/tickets/${datos.ticket_id}`)
-    } else if (datos?.proyecto_id) {
-      navigate(`/nt/proyectos/${datos.proyecto_id}`)
+    if (datos?.solicitud_id && datos?.codigo) {
+      navigate(`/nt/solicitudes/${datos.codigo}`)
+    } else if (datos?.ticket_id && datos?.codigo) {
+      navigate(`/ti/tickets/${datos.codigo}`)
+    } else if (datos?.proyecto_id && datos?.codigo) {
+      navigate(`/nt/proyectos/${datos.codigo}`)
     }
   }
 

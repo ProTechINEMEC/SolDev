@@ -99,12 +99,14 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://192.168.0.200:11001
     container_name: soldev_frontend
     environment:
-      VITE_API_URL: ${VITE_API_URL:-http://localhost:11001}
+      VITE_API_URL: http://192.168.0.200:11001
       VITE_APP_NAME: "Portal de Gestión INEMEC"
     ports:
-      - "11000:11000"
+      - "11000:80"
     volumes:
       - ./frontend:/app
       - /app/node_modules

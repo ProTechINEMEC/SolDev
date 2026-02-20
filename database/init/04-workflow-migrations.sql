@@ -565,5 +565,41 @@ BEGIN
 END$$;
 
 -- =====================================================
+-- 17. ADD MISSING EVALUACIONES_NT COLUMNS
+-- =====================================================
+
+-- Add riesgos_identificados column if not exists
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'evaluaciones_nt' AND column_name = 'riesgos_identificados') THEN
+    ALTER TABLE evaluaciones_nt ADD COLUMN riesgos_identificados JSONB DEFAULT '[]';
+  END IF;
+END$$;
+
+-- Add notas_adicionales column if not exists
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'evaluaciones_nt' AND column_name = 'notas_adicionales') THEN
+    ALTER TABLE evaluaciones_nt ADD COLUMN notas_adicionales TEXT;
+  END IF;
+END$$;
+
+-- Add fecha_envio column if not exists
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'evaluaciones_nt' AND column_name = 'fecha_envio') THEN
+    ALTER TABLE evaluaciones_nt ADD COLUMN fecha_envio TIMESTAMP;
+  END IF;
+END$$;
+
+-- Add fecha_inicio_posible column if not exists (NT's recommended start date)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'evaluaciones_nt' AND column_name = 'fecha_inicio_posible') THEN
+    ALTER TABLE evaluaciones_nt ADD COLUMN fecha_inicio_posible DATE;
+  END IF;
+END$$;
+
+-- =====================================================
 -- MIGRATION COMPLETE
 -- =====================================================

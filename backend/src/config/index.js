@@ -47,6 +47,7 @@ module.exports = {
   verification: {
     codeLength: 6,
     expiresIn: 15 * 60 * 1000, // 15 minutes
-    maxAttempts: 3
+    maxAttempts: 3,
+    skipEmailVerification: process.env.SKIP_EMAIL_VERIFICATION === 'true'
   }
 };

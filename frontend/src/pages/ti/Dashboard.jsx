@@ -31,7 +31,7 @@ function TIDashboard() {
   }
 
   const columns = [
-    { title: 'Código', dataIndex: 'codigo', render: (c, r) => <Link to={`/ti/tickets/${r.id}`}>{c}</Link> },
+    { title: 'Código', dataIndex: 'codigo', render: (c, r) => <Link to={`/ti/tickets/${r.codigo}`}>{c}</Link> },
     { title: 'Título', dataIndex: 'titulo', ellipsis: true },
     { title: 'Categoría', dataIndex: 'categoria' },
     { title: 'Prioridad', dataIndex: 'prioridad', render: (p) => <Tag color={p === 'critica' ? 'red' : p === 'alta' ? 'orange' : 'cyan'}>{p}</Tag> },

@@ -29,19 +29,19 @@ const entityConfig = {
     icon: <FileTextOutlined />,
     color: 'red',
     label: 'Solicitud',
-    getPath: (item) => `/nt/solicitudes/${item.id}`
+    getPath: (item) => `/nt/solicitudes/${item.codigo}`
   },
   proyecto: {
     icon: <ProjectOutlined />,
     color: 'green',
     label: 'Proyecto',
-    getPath: (item) => `/nt/proyectos/${item.id}`
+    getPath: (item) => `/nt/proyectos/${item.codigo}`
   },
   ticket: {
     icon: <ToolOutlined />,
     color: 'orange',
     label: 'Ticket',
-    getPath: (item) => `/ti/tickets/${item.id}`
+    getPath: (item) => `/ti/tickets/${item.codigo}`
   },
   articulo: {
     icon: <BookOutlined />,

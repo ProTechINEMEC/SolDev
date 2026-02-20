@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Modal, Card, Row, Col, Typography, Tag, Alert, Button, Space, Spin,
-  Tooltip, Divider, List, Badge, DatePicker, message
+  Tooltip, Divider, List, DatePicker, message
 } from 'antd'
 import {
-  CalendarOutlined, TeamOutlined, WarningOutlined, CheckCircleOutlined,
+  CalendarOutlined, CheckCircleOutlined,
   ClockCircleOutlined, ProjectOutlined
 } from '@ant-design/icons'
 import FullCalendar from '@fullcalendar/react'
@@ -18,14 +18,10 @@ dayjs.locale('es')
 
 const { Text, Paragraph } = Typography
 
-const phaseColors = {
-  analisis: '#1890ff',
-  diseno: '#722ed1',
-  desarrollo: '#52c41a',
-  pruebas: '#faad14',
-  documentacion: '#13c2c2',
-  entrega: '#eb2f96'
-}
+// Colors for the new project and its tasks (INEMEC brand colors)
+const NEW_PROJECT_COLOR = '#D52B1E'  // INEMEC primary red
+const NEW_TASK_COLOR = '#E85A50'     // Lighter INEMEC red for tasks
+const EXISTING_PROJECT_COLOR = '#8c8c8c'  // Gray for existing projects
 
 const prioridadColors = {
   critica: '#ff4d4f',
@@ -34,7 +30,7 @@ const prioridadColors = {
   baja: '#52c41a'
 }
 
-function SchedulingCalendar({ visible, onClose, solicitud, onSchedule }) {
+function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedule }) {
   const calendarRef = useRef(null)
   const [initialLoading, setInitialLoading] = useState(true)
   const [previewing, setPreviewing] = useState(false)
@@ -43,7 +39,6 @@ function SchedulingCalendar({ visible, onClose, solicitud, onSchedule }) {
 
   // Data states
   const [proyectos, setProyectos] = useState([])
-  const [equipoCarga, setEquipoCarga] = useState([])
   const [festivos, setFestivos] = useState([])
   const [selectedDate, setSelectedDate] = useState(null)
   const [preview, setPreview] = useState(null)
@@ -85,15 +80,10 @@ function SchedulingCalendar({ visible, onClose, solicitud, onSchedule }) {
       const startYear = dayjs(range.start).year()
       const endYear = dayjs(range.end).year()
 
-      const [proyectosRes, equipoRes, festivosRes] = await Promise.all([
+      const [proyectosRes, festivosRes] = await Promise.all([
         calendarioApi.getProyectosConTareas({
           fecha_inicio: range.start,
           fecha_fin: range.end
-        }),
-        calendarioApi.getEquipoCarga({
-          fecha_inicio: range.start,
-          fecha_fin: range.end,
-          solicitud_id: solicitud?.id
         }),
         calendarioApi.getFestivos({
           year_start: startYear,
@@ -102,7 +92,6 @@ function SchedulingCalendar({ visible, onClose, solicitud, onSchedule }) {
       ])
 
       setProyectos(proyectosRes.data.proyectos || [])
-      setEquipoCarga(equipoRes.data.equipo || [])
       setFestivos(festivosRes.data.festivos || [])
     } catch (error) {
       console.error('Error loading calendar data:', error)
@@ -174,7 +163,7 @@ function SchedulingCalendar({ visible, onClose, solicitud, onSchedule }) {
 
     setScheduling(true)
     try {
-      await solicitudesApi.agendar(solicitud.id, {
+      await solicitudesApi.agendar(solicitud.codigo, {
         fecha_inicio: preview.proyecto.fecha_inicio,
         fecha_fin: preview.proyecto.fecha_fin,
         comentario: `Agendado desde el calendario. Duración: ${preview.proyecto.duracion_dias_habiles} días hábiles.`
@@ -194,70 +183,56 @@ function SchedulingCalendar({ visible, onClose, solicitud, onSchedule }) {
     }
   }
 
-  // Build calendar events from existing projects
+  // Build calendar events
   const buildCalendarEvents = () => {
     const events = []
 
-    // Add existing project events
+    // Add existing projects as GRAY bars (no tasks shown)
     proyectos.forEach(proyecto => {
-      // Add main project bar
       events.push({
         id: `project-${proyecto.id}`,
         title: `${proyecto.codigo}: ${proyecto.titulo}`,
         start: proyecto.fecha_inicio_programada,
         end: dayjs(proyecto.fecha_fin_programada).add(1, 'day').format('YYYY-MM-DD'),
         allDay: true,
-        backgroundColor: prioridadColors[proyecto.prioridad] || '#1890ff',
-        borderColor: prioridadColors[proyecto.prioridad] || '#1890ff',
+        backgroundColor: EXISTING_PROJECT_COLOR,
+        borderColor: EXISTING_PROJECT_COLOR,
         textColor: '#fff',
         display: 'block',
         extendedProps: { type: 'project', proyecto }
       })
-
-      // Add task events
-      proyecto.tareas?.forEach(tarea => {
-        events.push({
-          id: `task-${proyecto.id}-${tarea.id}`,
-          title: `  ${tarea.nombre}${tarea.asignado_nombre ? ` (${tarea.asignado_nombre.split(' ')[0]})` : ''}`,
-          start: tarea.fecha_inicio,
-          end: dayjs(tarea.fecha_fin).add(1, 'day').format('YYYY-MM-DD'),
-          allDay: true,
-          backgroundColor: phaseColors[tarea.fase] || '#d9d9d9',
-          borderColor: 'transparent',
-          textColor: '#fff',
-          display: 'block',
-          extendedProps: { type: 'task', tarea, proyecto }
-        })
-      })
+      // Note: We intentionally don't add task events for existing projects
     })
 
-    // Add preview events if we have a preview
+    // Add preview events if we have a preview (new project in RED)
     if (preview) {
+      // Main project bar in RED
       events.push({
         id: 'preview-project',
-        title: `[NUEVO] ${preview.proyecto.codigo}: ${preview.proyecto.titulo}`,
+        title: `${preview.proyecto.codigo}: ${preview.proyecto.titulo}`,
         start: preview.proyecto.fecha_inicio,
         end: dayjs(preview.proyecto.fecha_fin).add(1, 'day').format('YYYY-MM-DD'),
         allDay: true,
-        backgroundColor: '#722ed1',
-        borderColor: '#722ed1',
+        backgroundColor: NEW_PROJECT_COLOR,
+        borderColor: NEW_PROJECT_COLOR,
         textColor: '#fff',
         display: 'block',
         extendedProps: { type: 'preview-project' }
       })
 
+      // Add preview task events in LIGHTER RED
       preview.tareas?.forEach(tarea => {
         events.push({
           id: `preview-task-${tarea.id}`,
-          title: `  [NUEVO] ${tarea.nombre}${tarea.asignado_nombre ? ` (${tarea.asignado_nombre.split(' ')[0]})` : ''}`,
+          title: `${tarea.nombre}${tarea.asignado_nombre ? ` (${tarea.asignado_nombre.split(' ')[0]})` : ''}`,
           start: tarea.fecha_inicio,
           end: dayjs(tarea.fecha_fin).add(1, 'day').format('YYYY-MM-DD'),
           allDay: true,
-          backgroundColor: '#b37feb',
-          borderColor: 'transparent',
+          backgroundColor: NEW_TASK_COLOR,
+          borderColor: NEW_TASK_COLOR,
           textColor: '#fff',
           display: 'block',
-          extendedProps: { type: 'preview-task', tarea }
+          extendedProps: { type: 'preview-task', tarea, fase: tarea.fase }
         })
       })
     }
@@ -331,10 +306,10 @@ function SchedulingCalendar({ visible, onClose, solicitud, onSchedule }) {
                 eventClick={(info) => {
                   // Could show project details on click
                 }}
-                height={500}
+                height={550}
                 selectable={true}
                 selectMirror={true}
-                dayMaxEvents={4}
+                dayMaxEvents={5}
                 weekends={false}
                 businessHours={{
                   daysOfWeek: [1, 2, 3, 4, 5],
@@ -343,43 +318,21 @@ function SchedulingCalendar({ visible, onClose, solicitud, onSchedule }) {
                 }}
                 datesSet={handleDatesSet}
               />
-            </Card>
 
-            {/* Team Workload */}
-            <Card size="small" title={<><TeamOutlined /> Carga del Equipo NT</>} style={{ marginTop: 16 }}>
-              <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-                {equipoCarga.length === 0 ? (
-                  <Text type="secondary">No hay miembros del equipo</Text>
-                ) : (
-                  <List
-                    size="small"
-                    dataSource={equipoCarga}
-                    renderItem={miembro => (
-                      <List.Item>
-                        <List.Item.Meta
-                          title={miembro.nombre}
-                          description={
-                            miembro.tareas.length === 0
-                              ? <Tag color="green">Disponible</Tag>
-                              : <Space wrap>
-                                  {miembro.tareas.slice(0, 3).map(t => (
-                                    <Tooltip
-                                      key={t.id}
-                                      title={`${t.proyecto_codigo}: ${t.nombre} (${dayjs(t.fecha_inicio).format('DD/MM')} - ${dayjs(t.fecha_fin).format('DD/MM')})`}
-                                    >
-                                      <Tag color="blue">{t.proyecto_codigo}</Tag>
-                                    </Tooltip>
-                                  ))}
-                                  {miembro.tareas.length > 3 && (
-                                    <Tag>+{miembro.tareas.length - 3} más</Tag>
-                                  )}
-                                </Space>
-                          }
-                        />
-                      </List.Item>
-                    )}
-                  />
-                )}
+              {/* Legend */}
+              <div style={{ marginTop: 12, display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <Space size={4}>
+                  <div style={{ width: 12, height: 12, backgroundColor: NEW_PROJECT_COLOR, borderRadius: 2 }} />
+                  <Text type="secondary" style={{ fontSize: 12 }}>Nuevo Proyecto</Text>
+                </Space>
+                <Space size={4}>
+                  <div style={{ width: 12, height: 12, backgroundColor: NEW_TASK_COLOR, borderRadius: 2 }} />
+                  <Text type="secondary" style={{ fontSize: 12 }}>Tareas del Nuevo Proyecto</Text>
+                </Space>
+                <Space size={4}>
+                  <div style={{ width: 12, height: 12, backgroundColor: EXISTING_PROJECT_COLOR, borderRadius: 2 }} />
+                  <Text type="secondary" style={{ fontSize: 12 }}>Proyectos Existentes</Text>
+                </Space>
               </div>
             </Card>
           </Col>
@@ -409,23 +362,40 @@ function SchedulingCalendar({ visible, onClose, solicitud, onSchedule }) {
               style={{ marginBottom: 16 }}
             >
               <Space direction="vertical" style={{ width: '100%' }}>
-                <DatePicker
-                  value={selectedDate ? dayjs(selectedDate) : null}
-                  onChange={(date) => setSelectedDate(date ? date.format('YYYY-MM-DD') : null)}
-                  format="DD/MM/YYYY"
-                  style={{ width: '100%' }}
-                  placeholder="Seleccione fecha de inicio"
-                  disabledDate={(current) => {
-                    // Disable weekends, past dates, and holidays
-                    const day = current.day()
-                    const dateStr = current.format('YYYY-MM-DD')
-                    const isHoliday = festivos.some(f => f.fecha === dateStr)
-                    return current < dayjs().startOf('day') || day === 0 || day === 6 || isHoliday
-                  }}
-                />
+                <Space.Compact style={{ width: '100%' }}>
+                  <DatePicker
+                    value={selectedDate ? dayjs(selectedDate) : null}
+                    onChange={(date) => setSelectedDate(date ? date.format('YYYY-MM-DD') : null)}
+                    format="DD/MM/YYYY"
+                    style={{ flex: 1 }}
+                    placeholder="Seleccione fecha de inicio"
+                    disabledDate={(current) => {
+                      // Disable weekends, past dates, and holidays
+                      const day = current.day()
+                      const dateStr = current.format('YYYY-MM-DD')
+                      const isHoliday = festivos.some(f => f.fecha === dateStr)
+                      return current < dayjs().startOf('day') || day === 0 || day === 6 || isHoliday
+                    }}
+                  />
+                  {evaluacion?.fecha_inicio_posible && (
+                    <Tooltip title={`Fecha sugerida por NT: ${dayjs(evaluacion.fecha_inicio_posible).format('DD/MM/YYYY')}`}>
+                      <Button
+                        type="default"
+                        onClick={() => setSelectedDate(evaluacion.fecha_inicio_posible)}
+                      >
+                        Usar Fecha Recomendada
+                      </Button>
+                    </Tooltip>
+                  )}
+                </Space.Compact>
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  Solo días hábiles (lunes a viernes, sin festivos)
+                  Solo días hábiles (lunes a viernes, sin festivos colombianos)
                 </Text>
+                {evaluacion?.fecha_inicio_posible && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    NT recomienda: <Text strong>{dayjs(evaluacion.fecha_inicio_posible).format('DD/MM/YYYY')}</Text>
+                  </Text>
+                )}
               </Space>
             </Card>
 
@@ -466,11 +436,59 @@ function SchedulingCalendar({ visible, onClose, solicitud, onSchedule }) {
                       </Text>
                     </div>
                     <Divider style={{ margin: '8px 0' }} />
+
+                    {/* Phase breakdown */}
+                    {(() => {
+                      const fases = [...new Set(preview.tareas?.map(t => t.fase).filter(Boolean) || [])]
+                      if (fases.length === 0) return null
+                      return (
+                        <div>
+                          <Text type="secondary">Fases del cronograma:</Text>
+                          <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {fases.map((fase, index) => (
+                              <Tag key={fase} style={{ margin: 0 }}>
+                                {fase}
+                              </Tag>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })()}
+
+                    {/* Task list */}
+                    {preview.tareas?.length > 0 && (
+                      <div style={{ marginTop: 8 }}>
+                        <Text type="secondary">Tareas ({preview.tareas.length}):</Text>
+                        <div style={{ maxHeight: 150, overflowY: 'auto', marginTop: 4 }}>
+                          <List
+                            size="small"
+                            dataSource={preview.tareas}
+                            renderItem={(tarea) => (
+                              <List.Item style={{ padding: '4px 0', border: 'none' }}>
+                                <Space size={4}>
+                                  <div style={{
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: '50%',
+                                    backgroundColor: NEW_TASK_COLOR
+                                  }} />
+                                  <Text style={{ fontSize: 11 }}>
+                                    {tarea.nombre} ({tarea.duracion_dias}d)
+                                  </Text>
+                                </Space>
+                              </List.Item>
+                            )}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <Divider style={{ margin: '8px 0' }} />
                     <div>
                       <Text type="secondary">Equipo asignado:</Text>
                       <div style={{ marginTop: 4 }}>
                         {getAssignedTeam().map(m => (
-                          <Tag key={m.id} color="purple">{m.nombre}</Tag>
+                          <Tag key={m.id} color="red">{m.nombre}</Tag>
                         ))}
                         {getAssignedTeam().length === 0 && (
                           <Text type="secondary" style={{ fontSize: 12 }}>Sin asignaciones</Text>
@@ -479,29 +497,6 @@ function SchedulingCalendar({ visible, onClose, solicitud, onSchedule }) {
                     </div>
                   </Space>
                 </Card>
-
-                {/* Warnings */}
-                {preview.warnings && preview.warnings.length > 0 && (
-                  <Alert
-                    type="warning"
-                    icon={<WarningOutlined />}
-                    message="Advertencias de Sobrecarga"
-                    description={
-                      <List
-                        size="small"
-                        dataSource={preview.warnings}
-                        renderItem={w => (
-                          <List.Item style={{ padding: '4px 0', border: 'none' }}>
-                            <Text type="warning" style={{ fontSize: 12 }}>
-                              {w.mensaje}
-                            </Text>
-                          </List.Item>
-                        )}
-                      />
-                    }
-                    style={{ marginBottom: 16 }}
-                  />
-                )}
 
                 {/* Actions */}
                 <Space direction="vertical" style={{ width: '100%' }}>
@@ -512,6 +507,7 @@ function SchedulingCalendar({ visible, onClose, solicitud, onSchedule }) {
                     icon={<CheckCircleOutlined />}
                     onClick={handleConfirmSchedule}
                     loading={scheduling}
+                    danger
                   >
                     Confirmar y Agendar
                   </Button>

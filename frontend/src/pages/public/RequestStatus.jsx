@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { Card, Typography, Steps, Tag, Spin, Button, Input, Form, Descriptions, Alert, Progress, Space } from 'antd'
+import { Card, Typography, Steps, Tag, Spin, Button, Input, Form, Descriptions, Alert, Progress, Space, Timeline, Divider } from 'antd'
 import {
   SearchOutlined, CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined,
-  ToolOutlined, RocketOutlined, SwapOutlined, CalendarOutlined, ExclamationCircleOutlined
+  ToolOutlined, RocketOutlined, SwapOutlined, CalendarOutlined, ExclamationCircleOutlined,
+  MessageOutlined, UserOutlined, TeamOutlined
 } from '@ant-design/icons'
 import { solicitudesApi, ticketsApi } from '../../services/api'
 import dayjs from 'dayjs'
@@ -49,7 +50,7 @@ function RequestStatus() {
       // Try solicitud first
       if (code.toUpperCase().startsWith('SOL-')) {
         const response = await solicitudesApi.checkStatus(code)
-        setResult(response.data.solicitud)
+        setResult({ ...response.data.solicitud, comentarios: response.data.comentarios })
         setTransferencia(response.data.transferencia)
         setResultType('solicitud')
         return
@@ -58,7 +59,7 @@ function RequestStatus() {
       // Try ticket
       if (code.toUpperCase().startsWith('TKT-')) {
         const response = await ticketsApi.checkStatus(code)
-        setResult(response.data.ticket)
+        setResult({ ...response.data.ticket, comentarios: response.data.comentarios })
         setTransferencia(response.data.transferencia)
         setResultType('ticket')
         return
@@ -67,12 +68,12 @@ function RequestStatus() {
       // Unknown prefix, try both
       try {
         const response = await solicitudesApi.checkStatus(code)
-        setResult(response.data.solicitud)
+        setResult({ ...response.data.solicitud, comentarios: response.data.comentarios })
         setTransferencia(response.data.transferencia)
         setResultType('solicitud')
       } catch {
         const response = await ticketsApi.checkStatus(code)
-        setResult(response.data.ticket)
+        setResult({ ...response.data.ticket, comentarios: response.data.comentarios })
         setTransferencia(response.data.transferencia)
         setResultType('ticket')
       }
@@ -97,6 +98,45 @@ function RequestStatus() {
     if (milestone.completed) return 'finish'
     if (milestone.current) return 'process'
     return 'wait'
+  }
+
+  // Render public comments/conversation
+  const renderComentarios = () => {
+    if (!result?.comentarios || result.comentarios.length === 0) return null
+
+    return (
+      <div style={{ marginTop: 24 }}>
+        <Divider orientation="left">
+          <MessageOutlined style={{ marginRight: 8 }} />
+          Comunicaciones
+        </Divider>
+        <Timeline>
+          {result.comentarios
+            .slice()
+            .sort((a, b) => new Date(a.fecha) - new Date(b.fecha))
+            .map((c, index) => {
+              const isUserResponse = c.es_respuesta
+              return (
+                <Timeline.Item
+                  key={index}
+                  color={isUserResponse ? 'green' : 'blue'}
+                  dot={isUserResponse ? <UserOutlined /> : <TeamOutlined />}
+                >
+                  <div style={{ marginBottom: 4 }}>
+                    <Text strong>{c.autor}</Text>
+                    <Text type="secondary" style={{ marginLeft: 8 }}>
+                      {dayjs(c.fecha).format('DD/MM/YYYY HH:mm')}
+                    </Text>
+                  </div>
+                  <Paragraph style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                    {c.contenido}
+                  </Paragraph>
+                </Timeline.Item>
+              )
+            })}
+        </Timeline>
+      </div>
+    )
   }
 
   // Render progress with milestones
@@ -226,6 +266,8 @@ function RequestStatus() {
             {dayjs(result.actualizado_en).format('DD/MM/YYYY HH:mm')}
           </Descriptions.Item>
         </Descriptions>
+
+        {renderComentarios()}
       </Card>
     )
   }
@@ -300,6 +342,8 @@ function RequestStatus() {
             {dayjs(result.actualizado_en).format('DD/MM/YYYY HH:mm')}
           </Descriptions.Item>
         </Descriptions>
+
+        {renderComentarios()}
       </Card>
     )
   }

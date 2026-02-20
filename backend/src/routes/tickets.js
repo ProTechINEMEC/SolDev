@@ -4,6 +4,7 @@ const { pool, withTransaction } = require('../config/database');
 const { authenticate, authorize, optionalAuth } = require('../middleware/auth');
 const { AppError } = require('../middleware/errorHandler');
 const notificationService = require('../services/notificationService');
+const emailService = require('../services/email');
 const logger = require('../utils/logger');
 const publicLabels = require('../utils/publicLabels');
 
@@ -13,7 +14,7 @@ const router = express.Router();
 // VALIDATION SCHEMAS
 // ==============================================
 
-// Identificación del Solicitante
+// Identificación del Solicitante (IT tickets don't show sponsor question)
 const identificacionSchema = Joi.object({
   nombre_completo: Joi.string().required(),
   cargo: Joi.string().required(),
@@ -22,7 +23,7 @@ const identificacionSchema = Joi.object({
   correo: Joi.string().email().required(),
   telefono: Joi.string().allow('', null).optional(),
   cedula: Joi.string().required(),
-  es_doliente: Joi.boolean().required()
+  es_doliente: Joi.boolean().optional().default(true) // Optional for IT tickets
 });
 
 // Criticidad section
@@ -58,6 +59,133 @@ const updateTicketSchema = Joi.object({
   categoria: Joi.string().valid('hardware', 'software', 'red', 'acceso', 'otro').optional(),
   prioridad: Joi.string().valid('baja', 'media', 'alta', 'critica').optional(),
   resolucion: Joi.string().max(2000).optional()
+});
+
+// GET /api/tickets/consulta/:codigo - Public ticket status
+// NOTE: This route MUST be defined BEFORE /:codigo to avoid route matching issues
+router.get('/consulta/:codigo', async (req, res, next) => {
+  try {
+    const { codigo } = req.params;
+
+    const result = await pool.query(
+      `SELECT t.codigo, t.titulo, t.categoria, t.estado, t.prioridad, t.creado_en, t.actualizado_en,
+              t.transferido_a_solicitud_id,
+              s.codigo as solicitud_codigo
+       FROM tickets t
+       LEFT JOIN solicitudes s ON t.transferido_a_solicitud_id = s.id
+       WHERE t.codigo = $1`,
+      [codigo.toUpperCase()]
+    );
+
+    if (result.rows.length === 0) {
+      throw new AppError('Ticket no encontrado', 404);
+    }
+
+    const ticket = result.rows[0];
+
+    // Add transfer info if applicable
+    let transferInfo = null;
+    if (ticket.estado === 'transferido_nt' && ticket.solicitud_codigo) {
+      transferInfo = {
+        tipo: 'ticket_a_solicitud',
+        nuevo_codigo: ticket.solicitud_codigo,
+        mensaje: `Este ticket fue transferido a Desarrollo. Nuevo código: ${ticket.solicitud_codigo}`
+      };
+    }
+
+    // Get milestones for tickets (simplified)
+    const milestones = [
+      { id: 'recibido', label: 'Recibido', completed: true },
+      { id: 'proceso', label: 'En Proceso', completed: false },
+      { id: 'resuelto', label: 'Resuelto', completed: false }
+    ];
+
+    switch (ticket.estado) {
+      case 'asignado':
+      case 'en_proceso':
+        milestones[1].completed = true;
+        milestones[1].current = true;
+        break;
+      case 'resuelto':
+      case 'cerrado':
+      case 'solucionado':
+        milestones.forEach(m => m.completed = true);
+        break;
+      case 'no_realizado':
+        milestones[1].completed = true;
+        milestones[2].rejected = true;
+        break;
+      case 'transferido_nt':
+        milestones[1].completed = true;
+        milestones[2].label = 'Transferido';
+        milestones[2].transferred = true;
+        break;
+      default:
+        milestones[1].current = true;
+    }
+
+    const completedMilestones = milestones.filter(m => m.completed).length;
+    const progress = Math.round((completedMilestones / milestones.length) * 100);
+
+    const esTerminal = ['resuelto', 'cerrado', 'solucionado', 'no_realizado'].includes(ticket.estado);
+
+    // Get ticket ID for fetching comments
+    const ticketIdResult = await pool.query(
+      'SELECT id FROM tickets WHERE codigo = $1',
+      [codigo.toUpperCase()]
+    );
+    const ticketId = ticketIdResult.rows[0]?.id;
+
+    // Get public comments (tipo = 'publico', 'comunicacion', or 'respuesta')
+    let comentariosPublicos = [];
+    if (ticketId) {
+      const comentariosResult = await pool.query(
+        `SELECT c.id, c.contenido, c.creado_en, c.tipo, c.autor_externo,
+                COALESCE(u.nombre, 'Sistema') as autor_nombre,
+                (SELECT COUNT(*) FROM archivos a WHERE a.comentario_id = c.id) as attachment_count
+         FROM comentarios c
+         LEFT JOIN usuarios u ON c.usuario_id = u.id
+         WHERE c.entidad_tipo = 'ticket' AND c.entidad_id = $1
+           AND c.tipo IN ('publico', 'comunicacion', 'respuesta')
+         ORDER BY c.creado_en ASC`,
+        [ticketId]
+      );
+      comentariosPublicos = comentariosResult.rows.map(c => {
+        let contenido = c.contenido;
+        // For public view, just indicate attachments without numbers
+        if (c.tipo === 'respuesta' && parseInt(c.attachment_count) > 0) {
+          contenido += `\n\n📎 ${c.autor_externo} adjuntó archivo(s)`;
+        }
+        return {
+          contenido,
+          fecha: c.creado_en,
+          autor: c.tipo === 'respuesta' ? c.autor_externo : c.autor_nombre,
+          es_respuesta: c.tipo === 'respuesta'
+        };
+      });
+    }
+
+    res.json({
+      ticket: {
+        codigo: ticket.codigo,
+        titulo: ticket.titulo,
+        categoria: ticket.categoria,
+        estado: publicLabels.getTicketEstadoLabel(ticket.estado),
+        estado_interno: ticket.estado,
+        prioridad: publicLabels.getPrioridadLabel(ticket.prioridad),
+        creado_en: ticket.creado_en,
+        actualizado_en: ticket.actualizado_en,
+        progress,
+        milestones,
+        es_terminal: esTerminal,
+        es_transferido: ticket.estado === 'transferido_nt'
+      },
+      transferencia: transferInfo,
+      comentarios: comentariosPublicos
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // POST /api/tickets - Create ticket
@@ -182,6 +310,24 @@ router.post('/', optionalAuth, async (req, res, next) => {
         JSON.stringify({ ticket_id: ticket.id, codigo })
       ]
     );
+
+    // Send confirmation email to solicitante with full form data
+    const solicitanteEmail = solicitanteData.correo || solicitanteData.email;
+    const solicitanteNombre = solicitanteData.nombre_completo || solicitanteData.nombre || 'Solicitante';
+    if (solicitanteEmail) {
+      emailService.sendTicketCreatedWithForm(
+        solicitanteEmail,
+        solicitanteNombre,
+        codigo,
+        {
+          titulo: value.titulo,
+          descripcion: value.descripcion,
+          categoria: value.categoria,
+          datos_solicitante: solicitanteData,
+          criticidad: value.criticidad || solicitanteData.criticidad
+        }
+      ).catch(err => logger.error('Error sending ticket creation email:', err));
+    }
 
     logger.info(`New ticket created: ${codigo}`);
 
@@ -340,14 +486,19 @@ router.get('/', authenticate, authorize('ti', 'nuevas_tecnologias', 'gerencia'),
   }
 });
 
-// GET /api/tickets/:id - Get single ticket
-router.get('/:id', authenticate, authorize('ti', 'nuevas_tecnologias'), async (req, res, next) => {
-  try {
-    const { id } = req.params;
+// Helper function to get ticket ID from codigo
+const getTicketIdByCodigo = async (codigo) => {
+  const result = await pool.query('SELECT id FROM tickets WHERE codigo = $1', [codigo]);
+  if (result.rows.length === 0) {
+    throw new AppError('Ticket no encontrado', 404);
+  }
+  return result.rows[0].id;
+};
 
-    // Check if id is numeric or a code string
-    const isNumeric = /^\d+$/.test(id);
-    const whereClause = isNumeric ? 't.id = $1' : 't.codigo = $1';
+// GET /api/tickets/:codigo - Get single ticket
+router.get('/:codigo', authenticate, authorize('ti', 'nuevas_tecnologias'), async (req, res, next) => {
+  try {
+    const { codigo } = req.params;
 
     const result = await pool.query(
       `SELECT t.*,
@@ -355,8 +506,8 @@ router.get('/:id', authenticate, authorize('ti', 'nuevas_tecnologias'), async (r
         u.email as asignado_email
        FROM tickets t
        LEFT JOIN usuarios u ON t.asignado_id = u.id
-       WHERE ${whereClause}`,
-      [id]
+       WHERE t.codigo = $1`,
+      [codigo]
     );
 
     if (result.rows.length === 0) {
@@ -365,9 +516,11 @@ router.get('/:id', authenticate, authorize('ti', 'nuevas_tecnologias'), async (r
 
     const ticket = result.rows[0];
 
-    // Get comments
-    const comentarios = await pool.query(
-      `SELECT c.*, u.nombre as autor_nombre
+    // Get comments with attachment info for respuesta type
+    const comentariosResult = await pool.query(
+      `SELECT c.*, u.nombre as autor_nombre,
+              (SELECT array_agg(respuesta_numero ORDER BY respuesta_numero)
+               FROM archivos a WHERE a.comentario_id = c.id) as attachment_nums
        FROM comentarios c
        LEFT JOIN usuarios u ON c.usuario_id = u.id
        WHERE c.entidad_tipo = 'ticket' AND c.entidad_id = $1
@@ -375,26 +528,73 @@ router.get('/:id', authenticate, authorize('ti', 'nuevas_tecnologias'), async (r
       [ticket.id]
     );
 
-    // Get files
+    // Add attachment info text to respuesta comments
+    const comentarios = {
+      rows: comentariosResult.rows.map(c => {
+        if (c.tipo === 'respuesta' && c.attachment_nums && c.attachment_nums.length > 0) {
+          const nums = c.attachment_nums.filter(n => n).join(', ');
+          c.contenido += `\n\n📎 ${c.autor_externo} adjuntó archivo(s): ${nums}`;
+        }
+        return c;
+      })
+    };
+
+    // Get files with origin, uploader info, and respuesta_numero
     const archivos = await pool.query(
-      `SELECT * FROM archivos WHERE entidad_tipo = 'ticket' AND entidad_id = $1`,
+      `SELECT a.*, u.nombre as subido_por_nombre
+       FROM archivos a
+       LEFT JOIN usuarios u ON a.subido_por = u.id
+       WHERE a.entidad_tipo = 'ticket' AND a.entidad_id = $1
+       ORDER BY a.origen, a.respuesta_numero, a.creado_en DESC`,
       [ticket.id]
     );
+
+    // Group archivos by origen (form section)
+    const origenLabels = {
+      reporte_evidencia: 'Reporte - Evidencia',
+      adjuntos_generales: 'Adjuntos Generales',
+      respuesta_comunicacion: 'Respuesta a Comunicación',
+      creacion: 'Adjuntos del Solicitante'
+    };
+
+    const archivosAgrupados = {};
+    for (const archivo of archivos.rows) {
+      const origen = archivo.origen || 'creacion';
+      if (!archivosAgrupados[origen]) {
+        archivosAgrupados[origen] = {
+          origen,
+          label: origenLabels[origen] || origen,
+          archivos: []
+        };
+      }
+      archivosAgrupados[origen].archivos.push(archivo);
+    }
+
+    // Check if ticket came from a solicitud transfer
+    const transferOrigenResult = await pool.query(
+      `SELECT origen_codigo, motivo FROM transferencias
+       WHERE destino_tipo = 'ticket' AND destino_id = $1`,
+      [ticket.id]
+    );
+    const transferOrigen = transferOrigenResult.rows[0] || null;
 
     res.json({
       ticket,
       comentarios: comentarios.rows,
-      archivos: archivos.rows
+      archivos: archivos.rows,
+      archivos_agrupados: Object.values(archivosAgrupados),
+      transfer_origen: transferOrigen
     });
   } catch (error) {
     next(error);
   }
 });
 
-// PUT /api/tickets/:id - Update ticket
-router.put('/:id', authenticate, authorize('ti', 'nuevas_tecnologias'), async (req, res, next) => {
+// PUT /api/tickets/:codigo - Update ticket
+router.put('/:codigo', authenticate, authorize('ti', 'nuevas_tecnologias'), async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { codigo } = req.params;
+    const id = await getTicketIdByCodigo(codigo);
     const { error, value } = updateTicketSchema.validate(req.body);
 
     if (error) {
@@ -437,10 +637,11 @@ router.put('/:id', authenticate, authorize('ti', 'nuevas_tecnologias'), async (r
   }
 });
 
-// PUT /api/tickets/:id/estado - Change ticket state
-router.put('/:id/estado', authenticate, authorize('ti', 'nuevas_tecnologias'), async (req, res, next) => {
+// PUT /api/tickets/:codigo/estado - Change ticket state
+router.put('/:codigo/estado', authenticate, authorize('ti', 'nuevas_tecnologias'), async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { codigo } = req.params;
+    const id = await getTicketIdByCodigo(codigo);
     const { estado, comentario, resolucion } = req.body;
 
     const validStates = ['abierto', 'en_proceso', 'resuelto', 'cerrado', 'escalado_nt', 'solucionado', 'no_realizado', 'transferido_nt'];
@@ -507,13 +708,24 @@ router.put('/:id/estado', authenticate, authorize('ti', 'nuevas_tecnologias'), a
         [id, JSON.stringify({ estado: ticket.estado }), JSON.stringify({ estado, comentario }), req.user.id]
       );
 
-      if (comentario) {
-        await client.query(
-          `INSERT INTO comentarios (entidad_tipo, entidad_id, usuario_id, contenido, tipo)
-           VALUES ('ticket', $1, $2, $3, 'cambio_estado')`,
-          [id, req.user.id, comentario]
-        );
-      }
+      // Generate system comment message based on state change
+      const systemMessages = {
+        en_proceso: `Ticket tomado por ${req.user.nombre}`,
+        solucionado: `Ticket marcado como solucionado por ${req.user.nombre}`,
+        no_realizado: `Ticket marcado como no realizado por ${req.user.nombre}`,
+        cerrado: `Ticket cerrado por ${req.user.nombre}`,
+        resuelto: `Ticket resuelto por ${req.user.nombre}`,
+        escalado_nt: `Ticket escalado a Nuevas Tecnologías por ${req.user.nombre}`,
+        abierto: `Ticket devuelto a estado abierto por ${req.user.nombre}`
+      };
+
+      // Always add system comment for state changes (public for IT)
+      const systemComment = comentario || systemMessages[estado] || `Estado cambiado a ${estado}`;
+      await client.query(
+        `INSERT INTO comentarios (entidad_tipo, entidad_id, usuario_id, contenido, tipo)
+         VALUES ('ticket', $1, $2, $3, 'cambio_estado')`,
+        [id, req.user.id, systemComment]
+      );
 
       // Notify NT if escalated
       if (estado === 'escalado_nt') {
@@ -532,7 +744,25 @@ router.put('/:id/estado', authenticate, authorize('ti', 'nuevas_tecnologias'), a
 
     logger.info(`Ticket ${ticket.codigo} state changed: ${ticket.estado} -> ${estado}`);
 
-    // Send email and real-time notifications asynchronously
+    // Send email for terminal states (solucionado, cerrado, no_realizado)
+    const terminalEmailStates = ['solucionado', 'cerrado', 'no_realizado'];
+    if (terminalEmailStates.includes(estado)) {
+      const solicitanteData = ticket.datos_solicitante || {};
+      const solicitanteEmail = solicitanteData.correo || solicitanteData.email;
+      const solicitanteNombre = solicitanteData.nombre_completo || solicitanteData.nombre || 'Solicitante';
+      if (solicitanteEmail) {
+        emailService.sendTicketResolved(
+          solicitanteEmail,
+          solicitanteNombre,
+          ticket.codigo,
+          ticket.titulo,
+          estado,
+          resolucion
+        ).catch(err => logger.error('Error sending ticket resolved email:', err));
+      }
+    }
+
+    // Send real-time notifications asynchronously
     notificationService.onTicketStatusChange(
       id,
       ticket.estado,
@@ -547,52 +777,129 @@ router.put('/:id/estado', authenticate, authorize('ti', 'nuevas_tecnologias'), a
   }
 });
 
-// PUT /api/tickets/:id/escalar - Escalate to NT
-router.put('/:id/escalar', authenticate, authorize('ti'), async (req, res, next) => {
+// PUT /api/tickets/:codigo/escalar - Escalate to NT
+router.put('/:codigo/escalar', authenticate, authorize('ti'), async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const { codigo } = req.params;
+    const id = await getTicketIdByCodigo(codigo);
     const { motivo } = req.body;
 
     if (!motivo) {
       throw new AppError('Debe proporcionar un motivo para escalar', 400);
     }
 
-    req.body.estado = 'escalado_nt';
-    req.body.comentario = `Escalado a NT: ${motivo}`;
+    // Update ticket state directly
+    await pool.query(
+      `UPDATE tickets SET estado = 'escalado_nt', actualizado_en = NOW() WHERE id = $1`,
+      [id]
+    );
 
-    // Reuse estado change logic
-    return router.handle({ ...req, params: { id }, body: { estado: 'escalado_nt', comentario: `Escalado a NT: ${motivo}` } }, res, next);
+    // Add comment
+    await pool.query(
+      `INSERT INTO comentarios (entidad_tipo, entidad_id, usuario_id, contenido, tipo)
+       VALUES ('ticket', $1, $2, $3, 'cambio_estado')`,
+      [id, req.user.id, `Escalado a NT: ${motivo}`]
+    );
+
+    res.json({ message: 'Ticket escalado a NT' });
   } catch (error) {
     next(error);
   }
 });
 
-// POST /api/tickets/:id/comentarios - Add comment
-router.post('/:id/comentarios', authenticate, async (req, res, next) => {
+// POST /api/tickets/:codigo/comentarios - Add comment
+// tipos: 'interno' (staff only), 'publico' (visible in public status), 'comunicacion' (sends email to creator)
+router.post('/:codigo/comentarios', authenticate, async (req, res, next) => {
   try {
-    const { id } = req.params;
-    const { contenido, interno = false } = req.body;
+    const { codigo } = req.params;
+    const id = await getTicketIdByCodigo(codigo);
+    let { contenido, tipo = 'interno', interno } = req.body;
+
+    // Legacy support: convert interno boolean to tipo
+    if (tipo === 'interno' && interno === false) {
+      tipo = 'publico';
+    }
+
+    // Gerencia users always have interno comments
+    if (req.user.rol === 'gerencia') {
+      tipo = 'interno';
+    }
+
+    // Validate tipo
+    const validTipos = ['interno', 'publico', 'comunicacion'];
+    if (!validTipos.includes(tipo)) {
+      tipo = 'interno';
+    }
 
     if (!contenido || contenido.trim().length === 0) {
       throw new AppError('El comentario no puede estar vacío', 400);
     }
 
-    const ticketResult = await pool.query('SELECT id FROM tickets WHERE id = $1', [id]);
-    if (ticketResult.rows.length === 0) {
-      throw new AppError('Ticket no encontrado', 404);
-    }
-
-    const result = await pool.query(
-      `INSERT INTO comentarios (entidad_tipo, entidad_id, usuario_id, contenido, interno)
-       VALUES ('ticket', $1, $2, $3, $4)
-       RETURNING *`,
-      [id, req.user.id, contenido.trim(), interno]
+    // Get ticket info for email (if comunicacion)
+    const ticketResult = await pool.query(
+      'SELECT t.*, t.datos_solicitante FROM tickets t WHERE t.id = $1',
+      [id]
     );
+    const ticket = ticketResult.rows[0];
+
+    // Insert comment
+    const result = await pool.query(
+      `INSERT INTO comentarios (entidad_tipo, entidad_id, usuario_id, contenido, tipo, interno)
+       VALUES ('ticket', $1, $2, $3, $4, $5)
+       RETURNING *`,
+      [id, req.user.id, contenido.trim(), tipo, tipo === 'interno']
+    );
+
+    const comentario = result.rows[0];
+
+    // If comunicacion, create response token and send email
+    if (tipo === 'comunicacion') {
+      const crypto = require('crypto');
+      const token = crypto.randomBytes(32).toString('hex');
+      const expiraEn = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+      const solicitanteEmail = ticket.datos_solicitante?.correo || ticket.datos_solicitante?.email;
+
+      if (solicitanteEmail) {
+        // Create pending response record
+        await pool.query(
+          `INSERT INTO respuestas_pendientes
+           (token, comentario_id, entidad_tipo, entidad_id, email_destino, usuario_pregunta_id, expira_en)
+           VALUES ($1, $2, 'ticket', $3, $4, $5, $6)`,
+          [token, comentario.id, id, solicitanteEmail, req.user.id, expiraEn]
+        );
+
+        // Send email (async, don't wait)
+        const emailService = require('../services/email');
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:11000';
+        const responseUrl = `${frontendUrl}/responder/${token}`;
+
+        emailService.sendEmail({
+          to: solicitanteEmail,
+          subject: `Comunicación sobre su ticket ${ticket.codigo}`,
+          html: `
+            <h2>Comunicación sobre su ticket</h2>
+            <p>Hemos recibido una comunicación del equipo técnico sobre su ticket <strong>${ticket.codigo}</strong>:</p>
+            <blockquote style="border-left: 3px solid #D52B1E; padding-left: 15px; margin: 20px 0; color: #333;">
+              ${contenido.trim().replace(/\n/g, '<br>')}
+            </blockquote>
+            <p><strong>De:</strong> ${req.user.nombre}</p>
+            <p>Si desea responder a esta comunicación, haga clic en el siguiente enlace:</p>
+            <p><a href="${responseUrl}" style="background-color: #D52B1E; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">Responder</a></p>
+            <p><small>Este enlace expira en 7 días y solo puede usarse una vez.</small></p>
+            <hr>
+            <p style="color: #666; font-size: 12px;">INEMEC S.A. - Sistema de Gestión de Solicitudes</p>
+          `
+        }).catch(err => {
+          logger.error('Error sending comunicacion email:', err);
+        });
+      }
+    }
 
     res.status(201).json({
       message: 'Comentario agregado',
       comentario: {
-        ...result.rows[0],
+        ...comentario,
         autor_nombre: req.user.nombre
       }
     });
@@ -601,99 +908,11 @@ router.post('/:id/comentarios', authenticate, async (req, res, next) => {
   }
 });
 
-// GET /api/tickets/consulta/:codigo - Public ticket status
-router.get('/consulta/:codigo', async (req, res, next) => {
+// POST /api/tickets/:codigo/transferir-nt - Transfer ticket to NT as a new solicitud
+router.post('/:codigo/transferir-nt', authenticate, authorize('ti'), async (req, res, next) => {
   try {
     const { codigo } = req.params;
-
-    const result = await pool.query(
-      `SELECT t.codigo, t.titulo, t.categoria, t.estado, t.prioridad, t.creado_en, t.actualizado_en,
-              t.transferido_a_solicitud_id,
-              s.codigo as solicitud_codigo
-       FROM tickets t
-       LEFT JOIN solicitudes s ON t.transferido_a_solicitud_id = s.id
-       WHERE t.codigo = $1`,
-      [codigo.toUpperCase()]
-    );
-
-    if (result.rows.length === 0) {
-      throw new AppError('Ticket no encontrado', 404);
-    }
-
-    const ticket = result.rows[0];
-
-    // Add transfer info if applicable
-    let transferInfo = null;
-    if (ticket.estado === 'transferido_nt' && ticket.solicitud_codigo) {
-      transferInfo = {
-        tipo: 'ticket_a_solicitud',
-        nuevo_codigo: ticket.solicitud_codigo,
-        mensaje: `Este ticket fue transferido a Desarrollo. Nuevo código: ${ticket.solicitud_codigo}`
-      };
-    }
-
-    // Get milestones for tickets (simplified)
-    const milestones = [
-      { id: 'recibido', label: 'Recibido', completed: true },
-      { id: 'proceso', label: 'En Proceso', completed: false },
-      { id: 'resuelto', label: 'Resuelto', completed: false }
-    ];
-
-    switch (ticket.estado) {
-      case 'asignado':
-      case 'en_proceso':
-        milestones[1].completed = true;
-        milestones[1].current = true;
-        break;
-      case 'resuelto':
-      case 'cerrado':
-      case 'solucionado':
-        milestones.forEach(m => m.completed = true);
-        break;
-      case 'no_realizado':
-        milestones[1].completed = true;
-        milestones[2].rejected = true;
-        break;
-      case 'transferido_nt':
-        milestones[1].completed = true;
-        milestones[2].label = 'Transferido';
-        milestones[2].transferred = true;
-        break;
-      default:
-        milestones[1].current = true;
-    }
-
-    const completedMilestones = milestones.filter(m => m.completed).length;
-    const progress = Math.round((completedMilestones / milestones.length) * 100);
-
-    const esTerminal = ['resuelto', 'cerrado', 'solucionado', 'no_realizado'].includes(ticket.estado);
-
-    res.json({
-      ticket: {
-        codigo: ticket.codigo,
-        titulo: ticket.titulo,
-        categoria: ticket.categoria,
-        estado: publicLabels.getTicketEstadoLabel(ticket.estado),
-        estado_interno: ticket.estado,
-        prioridad: publicLabels.getPrioridadLabel(ticket.prioridad),
-        creado_en: ticket.creado_en,
-        actualizado_en: ticket.actualizado_en,
-        progress,
-        milestones,
-        es_terminal: esTerminal,
-        es_transferido: ticket.estado === 'transferido_nt'
-      },
-      transferencia: transferInfo
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// POST /api/tickets/:id/transferir-nt - Transfer ticket to NT as a new solicitud
-router.post('/:id/transferir-nt', authenticate, authorize('ti'), async (req, res, next) => {
-  try {
-    const { id } = req.params;
+    const id = await getTicketIdByCodigo(codigo);
     const { motivo, tipo_solicitud = 'transferido_ti' } = req.body;
 
     if (!motivo || motivo.trim().length === 0) {
@@ -702,10 +921,6 @@ router.post('/:id/transferir-nt', authenticate, authorize('ti'), async (req, res
 
     // Get the ticket
     const ticketResult = await pool.query('SELECT * FROM tickets WHERE id = $1', [id]);
-    if (ticketResult.rows.length === 0) {
-      throw new AppError('Ticket no encontrado', 404);
-    }
-
     const ticket = ticketResult.rows[0];
 
     // Check if ticket is in a valid state for transfer
@@ -742,7 +957,7 @@ router.post('/:id/transferir-nt', authenticate, authorize('ti'), async (req, res
           solicitudCodigo,
           tipo_solicitud,
           ticket.prioridad,
-          `[Transferido de ${ticket.codigo}] ${ticket.titulo}`,
+          ticket.titulo,
           ticket.solicitante_id,
           req.user.id,
           JSON.stringify(ticket.datos_solicitante || {}),
@@ -827,6 +1042,21 @@ router.post('/:id/transferir-nt', authenticate, authorize('ti'), async (req, res
 
       logger.info(`Ticket ${ticket.codigo} transferred to NT as ${solicitudCodigo}`);
 
+      // Send transfer email to solicitante
+      const solicitanteData = ticket.datos_solicitante || {};
+      const solicitanteEmail = solicitanteData.correo || solicitanteData.email;
+      const solicitanteNombre = solicitanteData.nombre_completo || solicitanteData.nombre || 'Solicitante';
+      if (solicitanteEmail) {
+        emailService.sendTransferNotification(
+          solicitanteEmail,
+          solicitanteNombre,
+          ticket.codigo,
+          solicitudCodigo,
+          'ticket_a_solicitud',
+          motivo
+        ).catch(err => logger.error('Error sending transfer email:', err));
+      }
+
       res.json({
         message: 'Ticket transferido exitosamente',
         ticket: {
@@ -843,6 +1073,58 @@ router.post('/:id/transferir-nt', authenticate, authorize('ti'), async (req, res
           destino: solicitudCodigo
         }
       });
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/tickets/:codigo/categoria - Update categoria for tickets transferred from NT
+router.patch('/:codigo/categoria', authenticate, authorize('ti'), async (req, res, next) => {
+  try {
+    const { codigo } = req.params;
+    const { categoria } = req.body;
+
+    const validCategorias = ['hardware', 'software', 'red', 'acceso', 'soporte_general'];
+    if (!categoria || !validCategorias.includes(categoria)) {
+      throw new AppError('Categoría inválida. Debe ser: hardware, software, red, acceso, o soporte_general', 400);
+    }
+
+    // Get ticket
+    const ticketResult = await pool.query(
+      'SELECT * FROM tickets WHERE codigo = $1',
+      [codigo]
+    );
+
+    if (ticketResult.rows.length === 0) {
+      throw new AppError('Ticket no encontrado', 404);
+    }
+
+    const ticket = ticketResult.rows[0];
+
+    // Check if ticket came from NT (has a transfer record)
+    const transferResult = await pool.query(
+      `SELECT * FROM transferencias WHERE destino_tipo = 'ticket' AND destino_id = $1`,
+      [ticket.id]
+    );
+
+    if (transferResult.rows.length === 0) {
+      throw new AppError('Solo se puede asignar categoría a tickets transferidos desde NT', 400);
+    }
+
+    // Update ticket categoria
+    await pool.query(
+      `UPDATE tickets
+       SET categoria = $1, actualizado_en = NOW()
+       WHERE id = $2`,
+      [categoria, ticket.id]
+    );
+
+    logger.info(`Categoria updated for ${codigo}: ${categoria}`);
+
+    res.json({
+      message: 'Categoría actualizada',
+      categoria
     });
   } catch (error) {
     next(error);

@@ -8,7 +8,7 @@ import FileUploader from '../FileUploader'
 const { TextArea } = Input
 const { Text } = Typography
 
-function SolucionSection({ form }) {
+function SolucionSection({ form, sectionNumber = 6 }) {
   const [tipoSolucionOptions, setTipoSolucionOptions] = useState(TIPOS_SOLUCION)
   const [formaEntregaOptions, setFormaEntregaOptions] = useState(FORMAS_ENTREGA)
 
@@ -44,9 +44,9 @@ function SolucionSection({ form }) {
   }
 
   return (
-    <Card title="6. Propuesta de Solución" style={{ marginBottom: 24 }}>
+    <Card title={`${sectionNumber}. Propuesta de Solución`} style={{ marginBottom: 24 }}>
       <Divider orientation="left" orientationMargin={0}>
-        <Text strong>6.1 Tipo de Solución Esperada</Text>
+        <Text strong>{sectionNumber}.1 Tipo de Solución Esperada</Text>
       </Divider>
 
       <Row gutter={16}>
@@ -72,7 +72,7 @@ function SolucionSection({ form }) {
       </Row>
 
       <Divider orientation="left" orientationMargin={0}>
-        <Text strong>6.2 Descripción de la Solución Ideal</Text>
+        <Text strong>{sectionNumber}.2 Descripción de la Solución Ideal</Text>
       </Divider>
 
       <Form.Item
@@ -86,7 +86,7 @@ function SolucionSection({ form }) {
       </Form.Item>
 
       <Divider orientation="left" orientationMargin={0}>
-        <Text strong>6.3 Casos de Uso Principales</Text>
+        <Text strong>{sectionNumber}.3 Casos de Uso Principales</Text>
       </Divider>
 
       <Form.Item
@@ -101,7 +101,7 @@ function SolucionSection({ form }) {
       </Form.Item>
 
       <Divider orientation="left" orientationMargin={0}>
-        <Text strong>6.4 Usuarios Finales</Text>
+        <Text strong>{sectionNumber}.4 Usuarios Finales</Text>
       </Divider>
 
       <ListableInput
@@ -112,7 +112,7 @@ function SolucionSection({ form }) {
       />
 
       <Divider orientation="left" orientationMargin={0}>
-        <Text strong>6.5 Requerimientos Funcionales</Text>
+        <Text strong>{sectionNumber}.5 Requerimientos Funcionales</Text>
       </Divider>
 
       <ListableInput
@@ -131,7 +131,7 @@ function SolucionSection({ form }) {
       />
 
       <Divider orientation="left" orientationMargin={0}>
-        <Text strong>6.6 Restricciones o Condiciones Especiales</Text>
+        <Text strong>{sectionNumber}.6 Restricciones o Condiciones Especiales</Text>
       </Divider>
 
       <Form.Item
@@ -154,7 +154,7 @@ function SolucionSection({ form }) {
       )}
 
       <Divider orientation="left" orientationMargin={0}>
-        <Text strong>6.7 Forma de Entrega Deseada</Text>
+        <Text strong>{sectionNumber}.7 Forma de Entrega Deseada</Text>
       </Divider>
 
       <Form.Item
@@ -168,7 +168,7 @@ function SolucionSection({ form }) {
       </Form.Item>
 
       <Divider orientation="left" orientationMargin={0}>
-        <Text strong>6.8 Material de Referencia</Text>
+        <Text strong>{sectionNumber}.8 Material de Referencia</Text>
       </Divider>
 
       <Form.Item
@@ -177,7 +177,7 @@ function SolucionSection({ form }) {
       >
         <FileUploader
           name="referencias"
-          hint="Adjunte capturas, documentos o enlaces de referencia"
+          hint="Adjunte capturas, documentos o enlaces de referencia. Se aceptan todos los formatos."
           maxCount={5}
         />
       </Form.Item>
