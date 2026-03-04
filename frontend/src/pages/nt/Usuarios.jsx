@@ -15,13 +15,17 @@ const { Title, Text } = Typography
 const rolLabels = {
   nuevas_tecnologias: 'Nuevas Tecnologías',
   ti: 'TI',
-  gerencia: 'Gerencia'
+  gerencia: 'Gerencia',
+  coordinador_nt: 'Coordinador NT',
+  coordinador_ti: 'Coordinador TI'
 }
 
 const rolColors = {
   nuevas_tecnologias: 'red',
   ti: 'green',
-  gerencia: 'gold'
+  gerencia: 'gold',
+  coordinador_nt: 'volcano',
+  coordinador_ti: 'cyan'
 }
 
 function NTUsuarios() {
@@ -225,6 +229,8 @@ function NTUsuarios() {
               <Select.Option value="nuevas_tecnologias">Nuevas Tecnologías</Select.Option>
               <Select.Option value="ti">TI</Select.Option>
               <Select.Option value="gerencia">Gerencia</Select.Option>
+              <Select.Option value="coordinador_nt">Coordinador NT</Select.Option>
+              <Select.Option value="coordinador_ti">Coordinador TI</Select.Option>
             </Select>
           </Col>
           <Col xs={12} sm={6} md={4}>
@@ -305,6 +311,12 @@ function NTUsuarios() {
               <Select.Option value="gerencia">
                 <Tag color="gold">GER</Tag> Gerencia
               </Select.Option>
+              <Select.Option value="coordinador_nt">
+                <Tag color="volcano">C-NT</Tag> Coordinador NT
+              </Select.Option>
+              <Select.Option value="coordinador_ti">
+                <Tag color="cyan">C-TI</Tag> Coordinador TI
+              </Select.Option>
             </Select>
           </Form.Item>
 
@@ -321,6 +333,8 @@ function NTUsuarios() {
             <li><Tag color="red">NT</Tag> Gestión completa de solicitudes, proyectos, usuarios y artículos</li>
             <li><Tag color="green">TI</Tag> Gestión de tickets de soporte técnico</li>
             <li><Tag color="gold">Gerencia</Tag> Aprobación de solicitudes y visualización de reportes</li>
+            <li><Tag color="volcano">Coordinador NT</Tag> Revisión y aprobación de solicitudes antes de gerencia</li>
+            <li><Tag color="cyan">Coordinador TI</Tag> Supervisión y reasignación de tickets de soporte</li>
           </ul>
         </div>
       </Modal>

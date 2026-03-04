@@ -13,14 +13,14 @@ const createUsuarioSchema = Joi.object({
   email: Joi.string().email().required(),
   nombre: Joi.string().min(2).max(100).required(),
   password: Joi.string().min(8).required(),
-  rol: Joi.string().valid('nuevas_tecnologias', 'ti', 'gerencia').required()
+  rol: Joi.string().valid('nuevas_tecnologias', 'ti', 'gerencia', 'coordinador_nt', 'coordinador_ti').required()
 });
 
 const updateUsuarioSchema = Joi.object({
   nombre: Joi.string().min(2).max(100).optional(),
   email: Joi.string().email().optional(),
   password: Joi.string().min(8).optional(),
-  rol: Joi.string().valid('nuevas_tecnologias', 'ti', 'gerencia').optional(),
+  rol: Joi.string().valid('nuevas_tecnologias', 'ti', 'gerencia', 'coordinador_nt', 'coordinador_ti').optional(),
   activo: Joi.boolean().optional()
 });
 
@@ -254,7 +254,7 @@ router.get('/rol/:rol', authenticate, async (req, res, next) => {
   try {
     const { rol } = req.params;
 
-    const validRoles = ['nuevas_tecnologias', 'ti', 'gerencia'];
+    const validRoles = ['nuevas_tecnologias', 'ti', 'gerencia', 'coordinador_nt', 'coordinador_ti'];
     if (!validRoles.includes(rol)) {
       throw new AppError('Rol inválido', 400);
     }

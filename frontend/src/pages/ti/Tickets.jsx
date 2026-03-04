@@ -59,6 +59,9 @@ function TITickets() {
   const [loading, setLoading] = useState(true)
   const [collapsedGroups, setCollapsedGroups] = useState(defaultCollapsed)
 
+  // Check if user is coordinator
+  const isCoordinator = user?.rol === 'coordinador_ti'
+
   // Search state
   const [searchParams, setSearchParams] = useState({
     codigo: '',
@@ -187,9 +190,9 @@ function TITickets() {
     tickets.forEach(item => {
       const group = statusConfig[item.estado]?.group || 'Otros'
 
-      // "En Proceso" only shows tickets assigned to current user
+      // "En Proceso" - Coordinator sees ALL, regular TI only sees own tickets
       if (group === 'En Proceso') {
-        if (item.asignado_id === user?.id) {
+        if (isCoordinator || item.asignado_id === user?.id) {
           groups[group].push(item)
         }
       } else if (groups[group]) {
@@ -228,7 +231,7 @@ function TITickets() {
     })
 
     return groups
-  }, [tickets, user])
+  }, [tickets, user, isCoordinator])
 
   // Update collapsed state when data changes - empty groups should be collapsed
   useEffect(() => {
@@ -366,7 +369,7 @@ function TITickets() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={3} style={{ margin: 0 }}>
           <ToolOutlined style={{ marginRight: 8 }} />
-          Tickets
+          {isCoordinator ? 'Todos los Tickets' : 'Tickets'}
         </Title>
         <Button icon={<ReloadOutlined />} onClick={loadAllTickets} loading={loading}>
           Actualizar

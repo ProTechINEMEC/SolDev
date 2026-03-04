@@ -104,7 +104,11 @@ export const ticketsApi = {
   addComment: (id, data) => api.post(`/tickets/${id}/comentarios`, data),
   checkStatus: (codigo) => api.get(`/tickets/consulta/${codigo}`),
   transferirNT: (id, data) => api.post(`/tickets/${id}/transferir-nt`, data),
-  updateCategoria: (id, data) => api.patch(`/tickets/${id}/categoria`, data)
+  updateCategoria: (id, data) => api.patch(`/tickets/${id}/categoria`, data),
+  // Coordinator TI specific
+  reasignar: (codigo, data) => api.put(`/tickets/${codigo}/reasignar`, data),
+  cerrarForzado: (codigo, data) => api.put(`/tickets/${codigo}/cerrar-forzado`, data),
+  getTIWorkers: () => api.get('/tickets/ti-workers')
 }
 
 export const transferenciasApi = {
@@ -164,6 +168,8 @@ export const dashboardApi = {
   getNT: () => api.get('/dashboard/nt'),
   getTI: () => api.get('/dashboard/ti'),
   getGerencia: () => api.get('/dashboard/gerencia'),
+  getCoordinadorNT: () => api.get('/dashboard/coordinador-nt'),
+  getCoordinadorTI: () => api.get('/dashboard/coordinador-ti'),
   markNotificationRead: (id) => api.put(`/dashboard/notificaciones/${id}/leer`),
   markAllNotificationsRead: () => api.put('/dashboard/notificaciones/leer-todas')
 }

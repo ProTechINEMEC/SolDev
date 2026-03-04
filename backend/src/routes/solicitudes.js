@@ -815,7 +815,7 @@ router.get('/:codigo', optionalAuth, async (req, res, next) => {
 });
 
 // PUT /api/solicitudes/:codigo/estado - Change request state
-router.put('/:codigo/estado', authenticate, authorize('nuevas_tecnologias', 'gerencia', 'ti'), async (req, res, next) => {
+router.put('/:codigo/estado', authenticate, authorize('nuevas_tecnologias', 'coordinador_nt', 'gerencia', 'ti'), async (req, res, next) => {
   try {
     const { codigo } = req.params;
     const id = await getSolicitudIdByCodigo(codigo);
@@ -849,9 +849,11 @@ router.put('/:codigo/estado', authenticate, authorize('nuevas_tecnologias', 'ger
     };
 
     // Complex requests (proyecto_nuevo_interno, actualizacion) have full workflow
+    // Now goes: en_estudio → pendiente_revision_coordinador_nt → pendiente_aprobacion_gerencia
     const complexWorkflowTransitions = {
       pendiente_evaluacion_nt: ['en_estudio', 'descartado_nt'],
-      en_estudio: ['pendiente_aprobacion_gerencia', 'descartado_nt'],
+      en_estudio: ['pendiente_revision_coordinador_nt', 'descartado_nt'],  // Changed: goes to coordinator first
+      pendiente_revision_coordinador_nt: [],  // NT can't change this - coordinator handles it
       pendiente_reevaluacion: ['en_estudio'],
       agendado: ['en_desarrollo'],
       aprobado: ['agendado', 'en_desarrollo'],
@@ -860,11 +862,16 @@ router.put('/:codigo/estado', authenticate, authorize('nuevas_tecnologias', 'ger
       // Terminal states
       completado: [],
       rechazado_gerencia: [],
+      rechazado_coordinador_nt: [],  // New terminal state
       cancelado: []
     };
 
     const validTransitions = {
       nuevas_tecnologias: isSimpleTipo(solicitud.tipo) ? simpleWorkflowTransitions : complexWorkflowTransitions,
+      coordinador_nt: {
+        // Coordinator reviews NT evaluation before gerencia
+        pendiente_revision_coordinador_nt: ['pendiente_aprobacion_gerencia', 'rechazado_coordinador_nt', 'pendiente_reevaluacion']
+      },
       gerencia: {
         pendiente_aprobacion_gerencia: ['aprobado', 'rechazado_gerencia', 'pendiente_reevaluacion']
       },
@@ -913,9 +920,11 @@ router.put('/:codigo/estado', authenticate, authorize('nuevas_tecnologias', 'ger
       // Generate system comment message based on state change
       const systemMessages = {
         en_estudio: `Iniciando estudio de la solicitud`,
+        pendiente_revision_coordinador_nt: `Solicitud enviada a Coordinador NT para revisión`,
         pendiente_aprobacion_gerencia: `Solicitud escalada a Gerencia para aprobación`,
         aprobado: `Solicitud aprobada por Gerencia`,
         rechazado_gerencia: `Solicitud rechazada por Gerencia`,
+        rechazado_coordinador_nt: `Solicitud rechazada por Coordinador NT`,
         pendiente_reevaluacion: `Solicitud devuelta para reevaluación`,
         agendado: `Proyecto agendado para inicio`,
         en_desarrollo: `Proyecto en desarrollo`,
@@ -934,11 +943,47 @@ router.put('/:codigo/estado', authenticate, authorize('nuevas_tecnologias', 'ger
         [id, req.user.id, systemComment]
       );
 
-      // Create approval record if going to gerencia
+      // Notify coordinator when solicitud is ready for review (from NT en_estudio)
+      if (value.estado === 'pendiente_revision_coordinador_nt') {
+        // Notify coordinador_nt
+        await client.query(
+          `INSERT INTO notificaciones (usuario_id, tipo, titulo, mensaje, datos)
+           SELECT id, 'revision_coordinador_pendiente', 'Solicitud pendiente de revisión',
+             $1, $2
+           FROM usuarios WHERE rol = 'coordinador_nt' AND activo = true`,
+          [
+            `La solicitud ${solicitud.codigo} requiere su revisión antes de escalar a Gerencia`,
+            JSON.stringify({ solicitud_id: id, codigo: solicitud.codigo })
+          ]
+        );
+      }
+
+      // Create approval record if going to gerencia (from coordinator approval)
       if (value.estado === 'pendiente_aprobacion_gerencia') {
+        // If coordinator is approving, save their suggested date
+        if (req.user.rol === 'coordinador_nt' && value.fecha_sugerida) {
+          await client.query(
+            `UPDATE solicitudes
+             SET fecha_sugerida_coordinador = $1,
+                 coordinador_nt_id = $2,
+                 fecha_revision_coordinador = NOW(),
+                 comentario_coordinador = $3
+             WHERE id = $4`,
+            [value.fecha_sugerida, req.user.id, value.comentario || null, id]
+          );
+
+          // Log coordinator decision
+          await client.query(
+            `INSERT INTO decisiones_coordinador (entidad_tipo, entidad_id, entidad_codigo, coordinador_id, tipo_coordinador, accion, fecha_sugerida, comentario)
+             VALUES ('solicitud', $1, $2, $3, 'coordinador_nt', 'aprobar', $4, $5)`,
+            [id, solicitud.codigo, req.user.id, value.fecha_sugerida, value.comentario || null]
+          );
+        }
+
         await client.query(
           `INSERT INTO aprobaciones (solicitud_id, estado)
-           VALUES ($1, 'pendiente')`,
+           VALUES ($1, 'pendiente')
+           ON CONFLICT DO NOTHING`,
           [id]
         );
 
@@ -952,6 +997,27 @@ router.put('/:codigo/estado', authenticate, authorize('nuevas_tecnologias', 'ger
             `La solicitud ${solicitud.codigo} requiere su aprobación`,
             JSON.stringify({ solicitud_id: id, codigo: solicitud.codigo })
           ]
+        );
+      }
+
+      // If rejected by coordinator NT
+      if (value.estado === 'rechazado_coordinador_nt') {
+        // Log coordinator decision
+        await client.query(
+          `INSERT INTO decisiones_coordinador (entidad_tipo, entidad_id, entidad_codigo, coordinador_id, tipo_coordinador, accion, comentario)
+           VALUES ('solicitud', $1, $2, $3, 'coordinador_nt', 'rechazar', $4)`,
+          [id, solicitud.codigo, req.user.id, value.motivo_rechazo || value.comentario || null]
+        );
+
+        // Update solicitud with coordinator info
+        await client.query(
+          `UPDATE solicitudes
+           SET coordinador_nt_id = $1,
+               fecha_revision_coordinador = NOW(),
+               comentario_coordinador = $2,
+               motivo_rechazo = $3
+           WHERE id = $4`,
+          [req.user.id, value.comentario || null, value.motivo_rechazo || value.comentario || 'Rechazado por Coordinador NT', id]
         );
       }
 
@@ -1307,8 +1373,8 @@ router.post('/:codigo/agendar', authenticate, authorize('gerencia'), async (req,
   }
 });
 
-// POST /api/solicitudes/:codigo/solicitar-reevaluacion - Gerencia requests reevaluation from NT
-router.post('/:codigo/solicitar-reevaluacion', authenticate, authorize('gerencia'), async (req, res, next) => {
+// POST /api/solicitudes/:codigo/solicitar-reevaluacion - Gerencia or Coordinador NT requests reevaluation from NT
+router.post('/:codigo/solicitar-reevaluacion', authenticate, authorize('gerencia', 'coordinador_nt'), async (req, res, next) => {
   try {
     const { codigo } = req.params;
     const id = await getSolicitudIdByCodigo(codigo);
@@ -1322,9 +1388,13 @@ router.post('/:codigo/solicitar-reevaluacion', authenticate, authorize('gerencia
     const solicitudResult = await pool.query('SELECT * FROM solicitudes WHERE id = $1', [id]);
     const solicitud = solicitudResult.rows[0];
 
-    // Check valid state
-    if (solicitud.estado !== 'pendiente_aprobacion_gerencia') {
-      throw new AppError(`Solo se puede solicitar reevaluación de solicitudes pendientes de aprobación`, 400);
+    // Check valid state - coordinator can request from coordinator review, gerencia from gerencia review
+    const validStates = req.user.rol === 'coordinador_nt'
+      ? ['pendiente_revision_coordinador_nt']
+      : ['pendiente_aprobacion_gerencia'];
+
+    if (!validStates.includes(solicitud.estado)) {
+      throw new AppError(`Solo se puede solicitar reevaluación de solicitudes pendientes de su revisión`, 400);
     }
 
     await withTransaction(async (client) => {
@@ -1380,25 +1450,46 @@ router.post('/:codigo/solicitar-reevaluacion', authenticate, authorize('gerencia
         ]
       );
 
+      // Log coordinator decision if applicable
+      if (req.user.rol === 'coordinador_nt') {
+        await client.query(
+          `INSERT INTO decisiones_coordinador (entidad_tipo, entidad_id, entidad_codigo, coordinador_id, tipo_coordinador, accion, comentario)
+           VALUES ('solicitud', $1, $2, $3, 'coordinador_nt', 'reevaluar', $4)`,
+          [id, solicitud.codigo, req.user.id, comentario]
+        );
+
+        // Update solicitud with coordinator info
+        await client.query(
+          `UPDATE solicitudes
+           SET coordinador_nt_id = $1,
+               fecha_revision_coordinador = NOW(),
+               comentario_coordinador = $2
+           WHERE id = $3`,
+          [req.user.id, comentario, id]
+        );
+      }
+
       // Notify NT team
+      const requesterType = req.user.rol === 'coordinador_nt' ? 'Coordinador NT' : 'Gerencia';
       await client.query(
         `INSERT INTO notificaciones (usuario_id, tipo, titulo, mensaje, datos)
          SELECT id, 'reevaluacion_solicitada', 'Reevaluación solicitada',
            $1, $2
          FROM usuarios WHERE rol = 'nuevas_tecnologias' AND activo = true`,
         [
-          `Gerencia solicita reevaluación de ${solicitud.codigo}`,
+          `${requesterType} solicita reevaluación de ${solicitud.codigo}`,
           JSON.stringify({
             solicitud_id: id,
             codigo: solicitud.codigo,
             comentario,
-            areas_revisar
+            areas_revisar,
+            solicitante_rol: req.user.rol
           })
         ]
       );
     });
 
-    logger.info(`Reevaluation requested for ${solicitud.codigo} by gerencia`);
+    logger.info(`Reevaluation requested for ${solicitud.codigo} by ${req.user.rol}`);
 
     res.json({
       message: 'Reevaluación solicitada exitosamente',
@@ -1414,7 +1505,7 @@ router.post('/:codigo/solicitar-reevaluacion', authenticate, authorize('gerencia
 });
 
 // GET /api/solicitudes/:codigo/reevaluaciones - Get reevaluation history
-router.get('/:codigo/reevaluaciones', authenticate, authorize('nuevas_tecnologias', 'gerencia'), async (req, res, next) => {
+router.get('/:codigo/reevaluaciones', authenticate, authorize('nuevas_tecnologias', 'coordinador_nt', 'gerencia'), async (req, res, next) => {
   try {
     const { codigo } = req.params;
     const id = await getSolicitudIdByCodigo(codigo);

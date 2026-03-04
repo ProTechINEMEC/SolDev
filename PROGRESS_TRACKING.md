@@ -318,7 +318,7 @@ Independent web platform for INEMEC with three core functions:
 ## How to Run
 
 ```bash
-cd /home/angupesa0611/inemecAPP/Independent/SolDev
+cd /home/angupesa0611/work/SolDev
 ./start.sh
 ```
 

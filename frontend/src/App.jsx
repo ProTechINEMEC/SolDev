@@ -39,6 +39,7 @@ import TIDashboard from './pages/ti/Dashboard'
 import TITickets from './pages/ti/Tickets'
 import TITicketDetail from './pages/ti/TicketDetail'
 import TICalendario from './pages/ti/Calendario'
+import CoordinadorTIStats from './pages/ti/CoordinadorStats'
 
 // Gerencia Pages
 import GerenciaDashboard from './pages/gerencia/Dashboard'
@@ -46,6 +47,12 @@ import GerenciaAprobaciones from './pages/gerencia/Aprobaciones'
 import GerenciaAprobacionDetail from './pages/gerencia/AprobacionDetail'
 import GerenciaReportes from './pages/gerencia/Reportes'
 import GerenciaCalendario from './pages/gerencia/CalendarioGeneral'
+
+// Coordinador NT Pages
+import CoordinadorNTDashboard from './pages/coordinador-nt/Dashboard'
+import CoordinadorNTRevisiones from './pages/coordinador-nt/Revisiones'
+import CoordinadorNTRevisionDetail from './pages/coordinador-nt/RevisionDetail'
+import CoordinadorNTStats from './pages/coordinador-nt/Stats'
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -68,7 +75,9 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
     const dashboardRoutes = {
       nuevas_tecnologias: '/nt',
       ti: '/ti',
-      gerencia: '/gerencia'
+      coordinador_ti: '/ti',
+      gerencia: '/gerencia',
+      coordinador_nt: '/coordinador-nt'
     }
     return <Navigate to={dashboardRoutes[user?.rol] || '/'} replace />
   }
@@ -117,11 +126,11 @@ function App() {
         <Route path="perfil" element={<Profile />} />
       </Route>
 
-      {/* TI Routes */}
+      {/* TI Routes (includes coordinador_ti) */}
       <Route
         path="/ti"
         element={
-          <ProtectedRoute allowedRoles={['ti']}>
+          <ProtectedRoute allowedRoles={['ti', 'coordinador_ti']}>
             <MainLayout />
           </ProtectedRoute>
         }
@@ -130,6 +139,24 @@ function App() {
         <Route path="tickets" element={<TITickets />} />
         <Route path="tickets/:codigo" element={<TITicketDetail />} />
         <Route path="calendario" element={<TICalendario />} />
+        <Route path="estadisticas" element={<CoordinadorTIStats />} />
+        <Route path="perfil" element={<Profile />} />
+      </Route>
+
+      {/* Coordinador NT Routes */}
+      <Route
+        path="/coordinador-nt"
+        element={
+          <ProtectedRoute allowedRoles={['coordinador_nt']}>
+            <MainLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<CoordinadorNTDashboard />} />
+        <Route path="revisiones" element={<CoordinadorNTRevisiones />} />
+        <Route path="revision/:codigo" element={<CoordinadorNTRevisionDetail />} />
+        <Route path="calendario" element={<GerenciaCalendario />} />
+        <Route path="estadisticas" element={<CoordinadorNTStats />} />
         <Route path="perfil" element={<Profile />} />
       </Route>
 

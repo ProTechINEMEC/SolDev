@@ -7,9 +7,11 @@ import {
 import {
   ArrowLeftOutlined, SendOutlined, CheckOutlined, CloseOutlined,
   ExclamationCircleOutlined, UserSwitchOutlined, PlayCircleOutlined,
-  SwapOutlined, StopOutlined, FilePdfOutlined, DownloadOutlined, FileOutlined
+  SwapOutlined, StopOutlined, FilePdfOutlined, DownloadOutlined, FileOutlined,
+  TeamOutlined
 } from '@ant-design/icons'
 import { ticketsApi, usuariosApi, transferenciasApi, exportApi } from '../../services/api'
+import { useAuthStore } from '../../stores/authStore'
 import dayjs from 'dayjs'
 
 const { Title, Text, Paragraph } = Typography
@@ -55,6 +57,7 @@ const prioridadColors = {
 
 function TITicketDetail() {
   const { codigo } = useParams()
+  const { user } = useAuthStore()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [tiUsers, setTiUsers] = useState([])
@@ -70,6 +73,13 @@ function TITicketDetail() {
   const [transferInfo, setTransferInfo] = useState(null)
   const [pdfLoading, setPdfLoading] = useState(false)
   const navigate = useNavigate()
+
+  // Coordinator-specific state
+  const isCoordinator = user?.rol === 'coordinador_ti'
+  const [reassignModalVisible, setReassignModalVisible] = useState(false)
+  const [forceCloseModalVisible, setForceCloseModalVisible] = useState(false)
+  const [reassignUserId, setReassignUserId] = useState(null)
+  const [forceCloseMotivo, setForceCloseMotivo] = useState('')
 
   // Category selector state for tickets transferred from NT
   const [selectedCategoria, setSelectedCategoria] = useState(null)
@@ -295,6 +305,45 @@ function TITicketDetail() {
     }
   }
 
+  // Coordinator-specific handlers
+  const handleReassign = async () => {
+    if (!reassignUserId) {
+      message.error('Debe seleccionar un trabajador')
+      return
+    }
+    setActionLoading(true)
+    try {
+      await ticketsApi.reasignar(codigo, { nuevo_asignado_id: reassignUserId })
+      message.success('Ticket reasignado exitosamente')
+      setReassignModalVisible(false)
+      setReassignUserId(null)
+      loadTicket()
+    } catch (error) {
+      message.error(error.message || 'Error al reasignar ticket')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const handleForceClose = async () => {
+    if (!forceCloseMotivo.trim()) {
+      message.error('Debe ingresar un motivo para el cierre forzado')
+      return
+    }
+    setActionLoading(true)
+    try {
+      await ticketsApi.cerrarForzado(codigo, { motivo: forceCloseMotivo })
+      message.success('Ticket cerrado forzadamente')
+      setForceCloseModalVisible(false)
+      setForceCloseMotivo('')
+      loadTicket()
+    } catch (error) {
+      message.error(error.message || 'Error al cerrar ticket')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
   if (loading) {
     return <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
   }
@@ -386,6 +435,25 @@ function TITicketDetail() {
                 >
                   No Realizado
                 </Button>
+                {isCoordinator && (
+                  <>
+                    <Button
+                      icon={<TeamOutlined />}
+                      loading={actionLoading}
+                      onClick={() => setReassignModalVisible(true)}
+                    >
+                      Reasignar
+                    </Button>
+                    <Button
+                      danger
+                      icon={<CloseOutlined />}
+                      loading={actionLoading}
+                      onClick={() => setForceCloseModalVisible(true)}
+                    >
+                      Cerrar Forzado
+                    </Button>
+                  </>
+                )}
               </>
             )}
             {ticket.estado === 'resuelto' && (
@@ -834,6 +902,63 @@ function TITicketDetail() {
           value={transferMotivo}
           onChange={(e) => setTransferMotivo(e.target.value)}
           placeholder="Motivo de la transferencia y contexto relevante..."
+          rows={4}
+        />
+      </Modal>
+
+      {/* Coordinator: Reassign Modal */}
+      <Modal
+        title="Reasignar Ticket"
+        open={reassignModalVisible}
+        onOk={handleReassign}
+        onCancel={() => { setReassignModalVisible(false); setReassignUserId(null) }}
+        okText="Reasignar"
+        cancelText="Cancelar"
+        confirmLoading={actionLoading}
+      >
+        <Alert
+          message="Reasignar Ticket"
+          description="Seleccione el trabajador de TI al que desea reasignar este ticket."
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Select
+          value={reassignUserId}
+          onChange={(v) => setReassignUserId(v)}
+          placeholder="Seleccionar trabajador"
+          style={{ width: '100%' }}
+        >
+          {tiUsers.filter(u => u.id !== data?.ticket?.asignado_id).map(u => (
+            <Select.Option key={u.id} value={u.id}>
+              {u.nombre} ({u.email})
+            </Select.Option>
+          ))}
+        </Select>
+      </Modal>
+
+      {/* Coordinator: Force Close Modal */}
+      <Modal
+        title="Cerrar Ticket Forzadamente"
+        open={forceCloseModalVisible}
+        onOk={handleForceClose}
+        onCancel={() => { setForceCloseModalVisible(false); setForceCloseMotivo('') }}
+        okText="Cerrar Forzado"
+        okButtonProps={{ danger: true }}
+        cancelText="Cancelar"
+        confirmLoading={actionLoading}
+      >
+        <Alert
+          message="Cierre Forzado"
+          description="Esta accion cerrara el ticket sin completar el flujo normal. Utilice esta opcion solo cuando sea estrictamente necesario."
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <TextArea
+          value={forceCloseMotivo}
+          onChange={(e) => setForceCloseMotivo(e.target.value)}
+          placeholder="Motivo del cierre forzado..."
           rows={4}
         />
       </Modal>

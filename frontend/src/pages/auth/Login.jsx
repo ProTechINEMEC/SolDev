@@ -21,7 +21,9 @@ function Login() {
       const routes = {
         nuevas_tecnologias: '/nt',
         ti: '/ti',
-        gerencia: '/gerencia'
+        gerencia: '/gerencia',
+        coordinador_nt: '/coordinador-nt',
+        coordinador_ti: '/ti'
       }
       navigate(routes[user.rol] || '/')
     } catch (error) {

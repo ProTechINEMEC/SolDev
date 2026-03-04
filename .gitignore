@@ -52,3 +52,10 @@ backup/rclone_config/rclone.conf
 backup/logs/
 backup/temp/
 backups/
+
+# Local work log
+.worklog
+
+# Local memory and project state
+.memory
+.projectstate

@@ -35,27 +35,41 @@ const menuItems = {
     { key: '/nt/solicitudes', icon: <FileTextOutlined />, label: 'Solicitudes' },
     { key: '/nt/proyectos', icon: <ProjectOutlined />, label: 'Proyectos' },
     { key: '/nt/calendario', icon: <CalendarOutlined />, label: 'Calendario' },
-    { key: '/nt/articulos', icon: <BookOutlined />, label: 'Artículos' },
+    { key: '/nt/articulos', icon: <BookOutlined />, label: 'Articulos' },
     { key: '/nt/usuarios', icon: <TeamOutlined />, label: 'Usuarios' },
-    { key: '/nt/configuracion', icon: <SettingOutlined />, label: 'Configuración' }
+    { key: '/nt/configuracion', icon: <SettingOutlined />, label: 'Configuracion' }
   ],
   ti: [
     { key: '/ti', icon: <DashboardOutlined />, label: 'Dashboard' },
     { key: '/ti/tickets', icon: <ToolOutlined />, label: 'Tickets' },
     { key: '/ti/calendario', icon: <CalendarOutlined />, label: 'Calendario' }
   ],
+  coordinador_ti: [
+    { key: '/ti', icon: <DashboardOutlined />, label: 'Dashboard' },
+    { key: '/ti/tickets', icon: <ToolOutlined />, label: 'Todos los Tickets' },
+    { key: '/ti/calendario', icon: <CalendarOutlined />, label: 'Calendario' },
+    { key: '/ti/estadisticas', icon: <BarChartOutlined />, label: 'Estadisticas' }
+  ],
   gerencia: [
     { key: '/gerencia', icon: <DashboardOutlined />, label: 'Dashboard' },
     { key: '/gerencia/aprobaciones', icon: <CheckCircleOutlined />, label: 'Aprobaciones' },
     { key: '/gerencia/calendario', icon: <CalendarOutlined />, label: 'Calendario' },
     { key: '/gerencia/reportes', icon: <BarChartOutlined />, label: 'Reportes' }
+  ],
+  coordinador_nt: [
+    { key: '/coordinador-nt', icon: <DashboardOutlined />, label: 'Dashboard' },
+    { key: '/coordinador-nt/revisiones', icon: <CheckCircleOutlined />, label: 'Revisiones' },
+    { key: '/coordinador-nt/calendario', icon: <CalendarOutlined />, label: 'Calendario' },
+    { key: '/coordinador-nt/estadisticas', icon: <BarChartOutlined />, label: 'Estadisticas' }
   ]
 }
 
 const roleLabels = {
-  nuevas_tecnologias: 'Nuevas Tecnologías',
-  ti: 'Tecnologías de la Información',
-  gerencia: 'Gerencia'
+  nuevas_tecnologias: 'Nuevas Tecnologias',
+  ti: 'Tecnologias de la Informacion',
+  coordinador_ti: 'Coordinador TI',
+  gerencia: 'Gerencia',
+  coordinador_nt: 'Coordinador NT'
 }
 
 function MainLayout() {
@@ -88,7 +102,9 @@ function MainLayout() {
     const roleBasePaths = {
       nuevas_tecnologias: '/nt',
       ti: '/ti',
-      gerencia: '/gerencia'
+      coordinador_ti: '/ti',
+      gerencia: '/gerencia',
+      coordinador_nt: '/coordinador-nt'
     }
     return roleBasePaths[user?.rol] || '/'
   }

@@ -348,7 +348,7 @@ router.post('/', optionalAuth, async (req, res, next) => {
 });
 
 // GET /api/tickets - List tickets
-router.get('/', authenticate, authorize('ti', 'nuevas_tecnologias', 'gerencia'), async (req, res, next) => {
+router.get('/', authenticate, authorize('ti', 'coordinador_ti', 'nuevas_tecnologias', 'gerencia'), async (req, res, next) => {
   try {
     const {
       estado,
@@ -495,8 +495,24 @@ const getTicketIdByCodigo = async (codigo) => {
   return result.rows[0].id;
 };
 
+// GET /api/tickets/ti-workers - Get list of TI workers for reassignment dropdown
+// NOTE: This route MUST be before /:codigo to avoid route matching issues
+router.get('/ti-workers', authenticate, authorize('coordinador_ti'), async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, nombre, email FROM usuarios
+       WHERE rol = 'ti' AND activo = true
+       ORDER BY nombre`
+    );
+
+    res.json({ workers: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /api/tickets/:codigo - Get single ticket
-router.get('/:codigo', authenticate, authorize('ti', 'nuevas_tecnologias'), async (req, res, next) => {
+router.get('/:codigo', authenticate, authorize('ti', 'coordinador_ti', 'nuevas_tecnologias'), async (req, res, next) => {
   try {
     const { codigo } = req.params;
 
@@ -778,7 +794,7 @@ router.put('/:codigo/estado', authenticate, authorize('ti', 'nuevas_tecnologias'
 });
 
 // PUT /api/tickets/:codigo/escalar - Escalate to NT
-router.put('/:codigo/escalar', authenticate, authorize('ti'), async (req, res, next) => {
+router.put('/:codigo/escalar', authenticate, authorize('ti', 'coordinador_ti'), async (req, res, next) => {
   try {
     const { codigo } = req.params;
     const id = await getTicketIdByCodigo(codigo);
@@ -909,7 +925,7 @@ router.post('/:codigo/comentarios', authenticate, async (req, res, next) => {
 });
 
 // POST /api/tickets/:codigo/transferir-nt - Transfer ticket to NT as a new solicitud
-router.post('/:codigo/transferir-nt', authenticate, authorize('ti'), async (req, res, next) => {
+router.post('/:codigo/transferir-nt', authenticate, authorize('ti', 'coordinador_ti'), async (req, res, next) => {
   try {
     const { codigo } = req.params;
     const id = await getTicketIdByCodigo(codigo);
@@ -1080,7 +1096,7 @@ router.post('/:codigo/transferir-nt', authenticate, authorize('ti'), async (req,
 });
 
 // PATCH /api/tickets/:codigo/categoria - Update categoria for tickets transferred from NT
-router.patch('/:codigo/categoria', authenticate, authorize('ti'), async (req, res, next) => {
+router.patch('/:codigo/categoria', authenticate, authorize('ti', 'coordinador_ti'), async (req, res, next) => {
   try {
     const { codigo } = req.params;
     const { categoria } = req.body;
@@ -1125,6 +1141,226 @@ router.patch('/:codigo/categoria', authenticate, authorize('ti'), async (req, re
     res.json({
       message: 'Categoría actualizada',
       categoria
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==============================================
+// COORDINATOR TI SPECIFIC ENDPOINTS
+// ==============================================
+
+// PUT /api/tickets/:codigo/reasignar - Coordinator reassigns ticket to different TI worker
+router.put('/:codigo/reasignar', authenticate, authorize('coordinador_ti'), async (req, res, next) => {
+  try {
+    const { codigo } = req.params;
+    const { nuevo_asignado_id, motivo } = req.body;
+
+    if (!nuevo_asignado_id) {
+      throw new AppError('Debe especificar el nuevo asignado', 400);
+    }
+
+    // Verify the new assignee exists and is a TI worker
+    const usuarioResult = await pool.query(
+      'SELECT * FROM usuarios WHERE id = $1 AND rol = $2 AND activo = true',
+      [nuevo_asignado_id, 'ti']
+    );
+
+    if (usuarioResult.rows.length === 0) {
+      throw new AppError('El usuario especificado no existe o no es un trabajador de TI activo', 400);
+    }
+
+    // Get ticket
+    const ticketResult = await pool.query(
+      'SELECT * FROM tickets WHERE codigo = $1',
+      [codigo]
+    );
+
+    if (ticketResult.rows.length === 0) {
+      throw new AppError('Ticket no encontrado', 404);
+    }
+
+    const ticket = ticketResult.rows[0];
+    const asignadoAnterior = ticket.asignado_id;
+
+    // Can only reassign tickets that are already assigned
+    if (!ticket.asignado_id) {
+      throw new AppError('Este ticket no tiene un asignado previo. Use la función de asignar normal.', 400);
+    }
+
+    // Cannot reassign to the same person
+    if (ticket.asignado_id === nuevo_asignado_id) {
+      throw new AppError('El ticket ya está asignado a este trabajador', 400);
+    }
+
+    await withTransaction(async (client) => {
+      // Update ticket
+      await client.query(
+        `UPDATE tickets
+         SET asignado_id = $1,
+             asignado_anterior = $2,
+             reasignado_por = $3,
+             fecha_reasignacion = NOW(),
+             actualizado_en = NOW()
+         WHERE id = $4`,
+        [nuevo_asignado_id, asignadoAnterior, req.user.id, ticket.id]
+      );
+
+      // Log coordinator decision
+      await client.query(
+        `INSERT INTO decisiones_coordinador (
+          entidad_tipo, entidad_id, entidad_codigo, coordinador_id, tipo_coordinador,
+          accion, comentario, asignado_anterior_id, asignado_nuevo_id
+        ) VALUES ('ticket', $1, $2, $3, 'coordinador_ti', 'reasignar', $4, $5, $6)`,
+        [ticket.id, codigo, req.user.id, motivo || null, asignadoAnterior, nuevo_asignado_id]
+      );
+
+      // Log history
+      await client.query(
+        `INSERT INTO historial_cambios (entidad_tipo, entidad_id, accion, datos_anteriores, datos_nuevos, usuario_id)
+         VALUES ('ticket', $1, 'reasignar', $2, $3, $4)`,
+        [
+          ticket.id,
+          JSON.stringify({ asignado_id: asignadoAnterior }),
+          JSON.stringify({ asignado_id: nuevo_asignado_id, motivo }),
+          req.user.id
+        ]
+      );
+
+      // Add comment
+      await client.query(
+        `INSERT INTO comentarios (entidad_tipo, entidad_id, usuario_id, contenido, tipo, interno)
+         VALUES ('ticket', $1, $2, $3, 'reasignacion', true)`,
+        [ticket.id, req.user.id, `Ticket reasignado por Coordinador TI${motivo ? ': ' + motivo : ''}`]
+      );
+
+      // Notify new assignee
+      await client.query(
+        `INSERT INTO notificaciones (usuario_id, tipo, titulo, mensaje, datos)
+         VALUES ($1, 'ticket_reasignado', 'Ticket reasignado a usted',
+           $2, $3)`,
+        [
+          nuevo_asignado_id,
+          `El ticket ${codigo} le ha sido reasignado por el Coordinador`,
+          JSON.stringify({ ticket_id: ticket.id, codigo })
+        ]
+      );
+    });
+
+    logger.info(`Ticket ${codigo} reassigned from user ${asignadoAnterior} to ${nuevo_asignado_id} by coordinator ${req.user.id}`);
+
+    res.json({
+      message: 'Ticket reasignado exitosamente',
+      ticket: {
+        codigo,
+        asignado_anterior_id: asignadoAnterior,
+        nuevo_asignado_id
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PUT /api/tickets/:codigo/cerrar-forzado - Coordinator force-closes a ticket
+router.put('/:codigo/cerrar-forzado', authenticate, authorize('coordinador_ti'), async (req, res, next) => {
+  try {
+    const { codigo } = req.params;
+    const { motivo } = req.body;
+
+    if (!motivo || motivo.trim().length === 0) {
+      throw new AppError('Debe proporcionar un motivo para cerrar el ticket forzadamente', 400);
+    }
+
+    // Get ticket
+    const ticketResult = await pool.query(
+      'SELECT * FROM tickets WHERE codigo = $1',
+      [codigo]
+    );
+
+    if (ticketResult.rows.length === 0) {
+      throw new AppError('Ticket no encontrado', 404);
+    }
+
+    const ticket = ticketResult.rows[0];
+
+    // Cannot force-close already closed tickets
+    const terminalStates = ['resuelto', 'cerrado', 'solucionado', 'no_realizado', 'transferido_nt'];
+    if (terminalStates.includes(ticket.estado)) {
+      throw new AppError(`No se puede cerrar un ticket que ya está en estado '${ticket.estado}'`, 400);
+    }
+
+    const estadoAnterior = ticket.estado;
+
+    await withTransaction(async (client) => {
+      // Update ticket
+      await client.query(
+        `UPDATE tickets
+         SET estado = 'cerrado',
+             cerrado_forzado = true,
+             cerrado_forzado_por = $1,
+             motivo_cierre_forzado = $2,
+             fecha_resolucion = NOW(),
+             resolucion = $3,
+             actualizado_en = NOW()
+         WHERE id = $4`,
+        [req.user.id, motivo, `[Cerrado forzadamente por Coordinador] ${motivo}`, ticket.id]
+      );
+
+      // Log coordinator decision
+      await client.query(
+        `INSERT INTO decisiones_coordinador (
+          entidad_tipo, entidad_id, entidad_codigo, coordinador_id, tipo_coordinador,
+          accion, comentario
+        ) VALUES ('ticket', $1, $2, $3, 'coordinador_ti', 'cerrar_forzado', $4)`,
+        [ticket.id, codigo, req.user.id, motivo]
+      );
+
+      // Log history
+      await client.query(
+        `INSERT INTO historial_cambios (entidad_tipo, entidad_id, accion, datos_anteriores, datos_nuevos, usuario_id)
+         VALUES ('ticket', $1, 'cerrar_forzado', $2, $3, $4)`,
+        [
+          ticket.id,
+          JSON.stringify({ estado: estadoAnterior }),
+          JSON.stringify({ estado: 'cerrado', cerrado_forzado: true, motivo }),
+          req.user.id
+        ]
+      );
+
+      // Add comment
+      await client.query(
+        `INSERT INTO comentarios (entidad_tipo, entidad_id, usuario_id, contenido, tipo, interno)
+         VALUES ('ticket', $1, $2, $3, 'cierre_forzado', true)`,
+        [ticket.id, req.user.id, `Ticket cerrado forzadamente por Coordinador TI: ${motivo}`]
+      );
+
+      // Notify original assignee if any
+      if (ticket.asignado_id) {
+        await client.query(
+          `INSERT INTO notificaciones (usuario_id, tipo, titulo, mensaje, datos)
+           VALUES ($1, 'ticket_cerrado_forzado', 'Ticket cerrado por Coordinador',
+             $2, $3)`,
+          [
+            ticket.asignado_id,
+            `El ticket ${codigo} ha sido cerrado forzadamente por el Coordinador`,
+            JSON.stringify({ ticket_id: ticket.id, codigo, motivo })
+          ]
+        );
+      }
+    });
+
+    logger.info(`Ticket ${codigo} force-closed by coordinator ${req.user.id}: ${motivo}`);
+
+    res.json({
+      message: 'Ticket cerrado forzadamente',
+      ticket: {
+        codigo,
+        estado: 'cerrado',
+        cerrado_forzado: true,
+        motivo
+      }
     });
   } catch (error) {
     next(error);
