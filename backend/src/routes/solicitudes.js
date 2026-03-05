@@ -7,6 +7,9 @@ const notificationService = require('../services/notificationService');
 const emailService = require('../services/email');
 const logger = require('../utils/logger');
 const publicLabels = require('../utils/publicLabels');
+const { uploadMultiple, uploadsDir } = require('../config/multer');
+const path = require('path');
+const fs = require('fs');
 
 const router = express.Router();
 
@@ -449,6 +452,24 @@ router.post('/', optionalAuth, async (req, res, next) => {
       ]
     );
 
+    // Send immediate email to NT team for urgent types (reporte_fallo, cierre_servicio)
+    if (['reporte_fallo', 'cierre_servicio'].includes(value.tipo)) {
+      const ntUsersResult = await pool.query(
+        "SELECT nombre, email FROM usuarios WHERE rol = 'nuevas_tecnologias' AND activo = true"
+      );
+      const solNombre = (value.identificacion || {}).nombre_completo || 'Solicitante';
+      for (const ntUser of ntUsersResult.rows) {
+        emailService.sendNewSolicitudToNT(
+          ntUser.email,
+          ntUser.nombre,
+          codigo,
+          value.titulo,
+          value.tipo,
+          solNombre
+        ).catch(err => logger.error(`Error sending solicitud email to NT user ${ntUser.email}:`, err));
+      }
+    }
+
     // Send confirmation email to solicitante with full form data
     const identificacion = value.identificacion || datosFormulario.identificacion || {};
     const solicitanteEmail = identificacion.correo;
@@ -746,11 +767,14 @@ router.get('/:codigo', optionalAuth, async (req, res, next) => {
 
     const solicitud = result.rows[0];
 
-    // Get comments with attachment info for respuesta type
+    // Get comments with attachment info
     const comentariosResult = await pool.query(
       `SELECT c.*, u.nombre as autor_nombre, u.rol as autor_rol,
-              (SELECT array_agg(respuesta_numero ORDER BY respuesta_numero)
-               FROM archivos a WHERE a.comentario_id = c.id) as attachment_nums
+              (SELECT json_agg(json_build_object(
+                'id', a.id, 'nombre_original', a.nombre_original,
+                'mime_type', a.mime_type, 'tamano', a.tamano
+              ) ORDER BY a.creado_en)
+               FROM archivos a WHERE a.comentario_id = c.id) as adjuntos
        FROM comentarios c
        LEFT JOIN usuarios u ON c.usuario_id = u.id
        WHERE c.entidad_tipo = 'solicitud' AND c.entidad_id = $1
@@ -758,13 +782,9 @@ router.get('/:codigo', optionalAuth, async (req, res, next) => {
       [solicitud.id]
     );
 
-    // Add attachment info text to respuesta comments
     const comentarios = {
       rows: comentariosResult.rows.map(c => {
-        if (c.tipo === 'respuesta' && c.attachment_nums && c.attachment_nums.length > 0) {
-          const nums = c.attachment_nums.filter(n => n).join(', ');
-          c.contenido += `\n\n📎 ${c.autor_externo} adjuntó archivo(s): ${nums}`;
-        }
+        c.adjuntos = c.adjuntos || [];
         return c;
       })
     };
@@ -787,7 +807,8 @@ router.get('/:codigo', optionalAuth, async (req, res, next) => {
       adjuntos_generales: 'Adjuntos Generales',
       reporte_evidencia: 'Reporte - Evidencia',
       respuesta_comunicacion: 'Respuesta a Comunicación',
-      creacion: 'Adjuntos del Solicitante'
+      creacion: 'Adjuntos del Solicitante',
+      comentario: 'Adjuntos de Comentarios'
     };
 
     const archivosAgrupados = {};
@@ -1095,7 +1116,7 @@ router.put('/:codigo/estado', authenticate, authorize('nuevas_tecnologias', 'coo
 
 // POST /api/solicitudes/:codigo/comentarios - Add comment
 // tipos: 'interno' (staff only), 'publico' (visible in public status), 'comunicacion' (sends email to creator)
-router.post('/:codigo/comentarios', authenticate, async (req, res, next) => {
+router.post('/:codigo/comentarios', authenticate, uploadMultiple, async (req, res, next) => {
   try {
     const { codigo } = req.params;
     const id = await getSolicitudIdByCodigo(codigo);
@@ -1137,6 +1158,23 @@ router.post('/:codigo/comentarios', authenticate, async (req, res, next) => {
     );
 
     const comentario = result.rows[0];
+
+    // Save uploaded files linked to this comment
+    const adjuntos = [];
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        const fileResult = await pool.query(
+          `INSERT INTO archivos (
+            entidad_tipo, entidad_id, nombre_original, nombre_almacenado,
+            mime_type, tamano, ruta, subido_por, origen, comentario_id
+          ) VALUES ('solicitud', $1, $2, $3, $4, $5, $6, $7, 'comentario', $8)
+          RETURNING *`,
+          [id, file.originalname, file.filename, file.mimetype, file.size,
+           `/uploads/${file.filename}`, req.user.id, comentario.id]
+        );
+        adjuntos.push(fileResult.rows[0]);
+      }
+    }
 
     // If comunicacion, create response token and send email
     if (tipo === 'comunicacion') {
@@ -1187,10 +1225,18 @@ router.post('/:codigo/comentarios', authenticate, async (req, res, next) => {
       comentario: {
         ...comentario,
         autor_nombre: req.user.nombre,
-        autor_rol: req.user.rol
+        autor_rol: req.user.rol,
+        adjuntos
       }
     });
   } catch (error) {
+    // Clean up uploaded files on error
+    if (req.files) {
+      for (const file of req.files) {
+        const filePath = path.join(uploadsDir, file.filename);
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      }
+    }
     next(error);
   }
 });

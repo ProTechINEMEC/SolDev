@@ -19,7 +19,7 @@ const scheduler = {
       logger.info('Running scheduled weekly report generation');
       await this.generateAndSendWeeklyReport();
     }, {
-      timezone: 'America/Guayaquil'
+      timezone: 'America/Bogota'
     });
 
     // Daily cleanup of expired tokens - Daily at 2:00 AM
@@ -27,7 +27,7 @@ const scheduler = {
       logger.info('Running scheduled token cleanup');
       await this.cleanupExpiredTokens();
     }, {
-      timezone: 'America/Guayaquil'
+      timezone: 'America/Bogota'
     });
 
     // Daily reminder for pending approvals - Weekdays at 9:00 AM
@@ -35,7 +35,7 @@ const scheduler = {
       logger.info('Running pending approvals reminder');
       await this.sendPendingApprovalsReminder();
     }, {
-      timezone: 'America/Guayaquil'
+      timezone: 'America/Bogota'
     });
 
     // Daily deadline check - Weekdays at 8:00 AM
@@ -43,7 +43,7 @@ const scheduler = {
       logger.info('Running deadline check');
       await notificationService.checkUpcomingDeadlines();
     }, {
-      timezone: 'America/Guayaquil'
+      timezone: 'America/Bogota'
     });
 
     // Daily reevaluation reminder - Weekdays at 10:00 AM
@@ -51,10 +51,18 @@ const scheduler = {
       logger.info('Running reevaluation reminder');
       await this.sendReevaluationReminder();
     }, {
-      timezone: 'America/Guayaquil'
+      timezone: 'America/Bogota'
     });
 
-    logger.info('Scheduler started with timezone America/Guayaquil');
+    // Daily pending solicitudes digest for NT - Weekdays at 8:00 AM
+    cron.schedule('0 8 * * 1-5', async () => {
+      logger.info('Running daily solicitudes digest for NT');
+      await this.sendDailySolicitudesDigest();
+    }, {
+      timezone: 'America/Bogota'
+    });
+
+    logger.info('Scheduler started with timezone America/Bogota');
   },
 
   /**
@@ -252,6 +260,46 @@ const scheduler = {
       logger.info(`Reevaluation reminder: ${pendingResult.rows.length} solicitudes reminded to ${ntUsers.rows.length} NT users`);
     } catch (error) {
       logger.error('Failed to send reevaluation reminder:', error);
+    }
+  },
+
+  /**
+   * Send daily digest of pending solicitudes (non-urgent types) to NT team
+   * Skipped if there are no pending solicitudes of these types
+   */
+  async sendDailySolicitudesDigest() {
+    try {
+      // Get pending solicitudes of types NOT handled by immediate emails
+      // (immediate = reporte_fallo, cierre_servicio, transferido_ti)
+      const pendingResult = await pool.query(`
+        SELECT codigo, tipo, titulo, creado_en
+        FROM solicitudes
+        WHERE estado = 'pendiente_evaluacion_nt'
+          AND tipo NOT IN ('reporte_fallo', 'cierre_servicio', 'transferido_ti')
+        ORDER BY creado_en ASC
+      `);
+
+      if (pendingResult.rows.length === 0) {
+        logger.info('No pending solicitudes for daily digest, skipping email');
+        return;
+      }
+
+      // Get NT users
+      const ntUsers = await pool.query(
+        "SELECT email, nombre FROM usuarios WHERE rol = 'nuevas_tecnologias' AND activo = true"
+      );
+
+      for (const user of ntUsers.rows) {
+        try {
+          await emailService.sendDailySolicitudesDigest(user.email, user.nombre, pendingResult.rows);
+        } catch (error) {
+          logger.error(`Failed to send daily digest to ${user.email}:`, error);
+        }
+      }
+
+      logger.info(`Daily solicitudes digest sent to ${ntUsers.rows.length} NT users (${pendingResult.rows.length} pending solicitudes)`);
+    } catch (error) {
+      logger.error('Failed to send daily solicitudes digest:', error);
     }
   },
 

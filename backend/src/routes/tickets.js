@@ -7,6 +7,9 @@ const notificationService = require('../services/notificationService');
 const emailService = require('../services/email');
 const logger = require('../utils/logger');
 const publicLabels = require('../utils/publicLabels');
+const { uploadMultiple, uploadsDir } = require('../config/multer');
+const path = require('path');
+const fs = require('fs');
 
 const router = express.Router();
 
@@ -329,6 +332,23 @@ router.post('/', optionalAuth, async (req, res, next) => {
       ).catch(err => logger.error('Error sending ticket creation email:', err));
     }
 
+    // Notify all TI users via email about the new unassigned ticket
+    const tiUsersResult = await pool.query(
+      `SELECT nombre, email FROM usuarios WHERE rol IN ('ti', 'coordinador_ti') AND activo = true`
+    );
+    const urgencia = value.criticidad?.urgencia || solicitanteData.criticidad?.urgencia || value.prioridad;
+    for (const tiUser of tiUsersResult.rows) {
+      emailService.sendNewTicketToTI(
+        tiUser.email,
+        tiUser.nombre,
+        codigo,
+        value.titulo,
+        value.categoria,
+        urgencia,
+        solicitanteNombre
+      ).catch(err => logger.error(`Error sending new ticket email to TI user ${tiUser.email}:`, err));
+    }
+
     logger.info(`New ticket created: ${codigo}`);
 
     res.status(201).json({
@@ -532,11 +552,14 @@ router.get('/:codigo', authenticate, authorize('ti', 'coordinador_ti', 'nuevas_t
 
     const ticket = result.rows[0];
 
-    // Get comments with attachment info for respuesta type
+    // Get comments with attachment info
     const comentariosResult = await pool.query(
       `SELECT c.*, u.nombre as autor_nombre,
-              (SELECT array_agg(respuesta_numero ORDER BY respuesta_numero)
-               FROM archivos a WHERE a.comentario_id = c.id) as attachment_nums
+              (SELECT json_agg(json_build_object(
+                'id', a.id, 'nombre_original', a.nombre_original,
+                'mime_type', a.mime_type, 'tamano', a.tamano
+              ) ORDER BY a.creado_en)
+               FROM archivos a WHERE a.comentario_id = c.id) as adjuntos
        FROM comentarios c
        LEFT JOIN usuarios u ON c.usuario_id = u.id
        WHERE c.entidad_tipo = 'ticket' AND c.entidad_id = $1
@@ -544,13 +567,9 @@ router.get('/:codigo', authenticate, authorize('ti', 'coordinador_ti', 'nuevas_t
       [ticket.id]
     );
 
-    // Add attachment info text to respuesta comments
     const comentarios = {
       rows: comentariosResult.rows.map(c => {
-        if (c.tipo === 'respuesta' && c.attachment_nums && c.attachment_nums.length > 0) {
-          const nums = c.attachment_nums.filter(n => n).join(', ');
-          c.contenido += `\n\n📎 ${c.autor_externo} adjuntó archivo(s): ${nums}`;
-        }
+        c.adjuntos = c.adjuntos || [];
         return c;
       })
     };
@@ -570,7 +589,8 @@ router.get('/:codigo', authenticate, authorize('ti', 'coordinador_ti', 'nuevas_t
       reporte_evidencia: 'Reporte - Evidencia',
       adjuntos_generales: 'Adjuntos Generales',
       respuesta_comunicacion: 'Respuesta a Comunicación',
-      creacion: 'Adjuntos del Solicitante'
+      creacion: 'Adjuntos del Solicitante',
+      comentario: 'Adjuntos de Comentarios'
     };
 
     const archivosAgrupados = {};
@@ -825,7 +845,7 @@ router.put('/:codigo/escalar', authenticate, authorize('ti', 'coordinador_ti'), 
 
 // POST /api/tickets/:codigo/comentarios - Add comment
 // tipos: 'interno' (staff only), 'publico' (visible in public status), 'comunicacion' (sends email to creator)
-router.post('/:codigo/comentarios', authenticate, async (req, res, next) => {
+router.post('/:codigo/comentarios', authenticate, uploadMultiple, async (req, res, next) => {
   try {
     const { codigo } = req.params;
     const id = await getTicketIdByCodigo(codigo);
@@ -867,6 +887,59 @@ router.post('/:codigo/comentarios', authenticate, async (req, res, next) => {
     );
 
     const comentario = result.rows[0];
+
+    // Save uploaded files linked to this comment
+    const adjuntos = [];
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        const fileResult = await pool.query(
+          `INSERT INTO archivos (
+            entidad_tipo, entidad_id, nombre_original, nombre_almacenado,
+            mime_type, tamano, ruta, subido_por, origen, comentario_id
+          ) VALUES ('ticket', $1, $2, $3, $4, $5, $6, $7, 'comentario', $8)
+          RETURNING *`,
+          [id, file.originalname, file.filename, file.mimetype, file.size,
+           `/uploads/${file.filename}`, req.user.id, comentario.id]
+        );
+        adjuntos.push(fileResult.rows[0]);
+      }
+    }
+
+    // If coordinator creates a private comment, notify assigned TI user via email
+    if (req.user.rol === 'coordinador_ti' && tipo === 'interno') {
+      if (ticket.asignado_id) {
+        const asignadoResult = await pool.query(
+          'SELECT nombre, email FROM usuarios WHERE id = $1 AND activo = true',
+          [ticket.asignado_id]
+        );
+        if (asignadoResult.rows.length > 0) {
+          const asignado = asignadoResult.rows[0];
+          emailService.sendCoordinatorCommentToTI(
+            asignado.email,
+            asignado.nombre,
+            req.user.nombre,
+            ticket.codigo,
+            ticket.titulo,
+            contenido.trim()
+          ).catch(err => logger.error(`Error sending coordinator comment email to ${asignado.email}:`, err));
+        }
+      } else {
+        // Unassigned ticket: notify all TI users
+        const tiUsersResult = await pool.query(
+          "SELECT nombre, email FROM usuarios WHERE rol = 'ti' AND activo = true"
+        );
+        for (const tiUser of tiUsersResult.rows) {
+          emailService.sendCoordinatorCommentToTI(
+            tiUser.email,
+            tiUser.nombre,
+            req.user.nombre,
+            ticket.codigo,
+            ticket.titulo,
+            contenido.trim()
+          ).catch(err => logger.error(`Error sending coordinator comment email to ${tiUser.email}:`, err));
+        }
+      }
+    }
 
     // If comunicacion, create response token and send email
     if (tipo === 'comunicacion') {
@@ -916,10 +989,18 @@ router.post('/:codigo/comentarios', authenticate, async (req, res, next) => {
       message: 'Comentario agregado',
       comentario: {
         ...comentario,
-        autor_nombre: req.user.nombre
+        autor_nombre: req.user.nombre,
+        adjuntos
       }
     });
   } catch (error) {
+    // Clean up uploaded files on error
+    if (req.files) {
+      for (const file of req.files) {
+        const filePath = path.join(uploadsDir, file.filename);
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      }
+    }
     next(error);
   }
 });
@@ -1057,6 +1138,24 @@ router.post('/:codigo/transferir-nt', authenticate, authorize('ti', 'coordinador
       );
 
       logger.info(`Ticket ${ticket.codigo} transferred to NT as ${solicitudCodigo}`);
+
+      // Send transfer email to NT team
+      const ntUsersResult = await client.query(
+        "SELECT nombre, email FROM usuarios WHERE rol = 'nuevas_tecnologias' AND activo = true"
+      );
+      const transferSolicitanteData = ticket.datos_solicitante || {};
+      const transferSolicitanteNombre = transferSolicitanteData.nombre_completo || transferSolicitanteData.nombre || 'Solicitante';
+      for (const ntUser of ntUsersResult.rows) {
+        emailService.sendNewSolicitudToNT(
+          ntUser.email,
+          ntUser.nombre,
+          solicitudCodigo,
+          ticket.titulo,
+          'transferido_ti',
+          transferSolicitanteNombre,
+          { ticketCodigo: ticket.codigo, motivo }
+        ).catch(err => logger.error(`Error sending transfer email to NT user ${ntUser.email}:`, err));
+      }
 
       // Send transfer email to solicitante
       const solicitanteData = ticket.datos_solicitante || {};

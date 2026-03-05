@@ -677,6 +677,72 @@ const emailService = {
     return sendEmail(email, `Transferencia: ${codigoOrigen} → ${codigoDestino} - Portal INEMEC`, baseTemplate(content));
   },
 
+  // New ticket notification for TI team
+  async sendNewTicketToTI(email, nombre, codigo, titulo, categoria, urgencia, solicitanteNombre) {
+    const categoriaLabels = {
+      hardware: 'Hardware',
+      software: 'Software',
+      red: 'Red',
+      acceso: 'Acceso',
+      soporte_general: 'Soporte General',
+      otro: 'Otro'
+    };
+
+    const urgenciaLabels = {
+      baja: 'Baja',
+      media: 'Media',
+      alta: 'Alta',
+      critica: 'Crítica'
+    };
+
+    const urgenciaColors = {
+      baja: '#52c41a',
+      media: '#fa8c16',
+      alta: '#f5222d',
+      critica: '#722ed1'
+    };
+
+    const content = `
+      <h2>Nuevo Ticket de Soporte</h2>
+      <p>Hola <strong>${nombre}</strong>,</p>
+      <p>Se ha recibido un nuevo ticket de soporte que aún no ha sido asignado.</p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; width: 40%;"><strong>Código:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">${codigo}</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Título:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">${titulo}</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Categoría:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">${categoriaLabels[categoria] || categoria}</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Urgencia:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">
+            <span style="color: ${urgenciaColors[urgencia] || '#333'}; font-weight: bold;">${urgenciaLabels[urgencia] || urgencia || 'No especificada'}</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Solicitante:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">${solicitanteNombre}</td>
+        </tr>
+      </table>
+
+      <p style="background: #e6f7ff; padding: 15px; border-radius: 4px; border-left: 4px solid #1890ff;">
+        Este ticket está pendiente de asignación. Ingrese al portal para tomarlo o asignarlo.
+      </p>
+
+      <p style="text-align: center; margin-top: 20px;">
+        <a href="${config.frontendUrl}/ti/tickets" class="button">Ver Tickets</a>
+      </p>
+    `;
+    return sendEmail(email, `Nuevo Ticket ${codigo} - ${categoriaLabels[categoria] || categoria} - Portal INEMEC`, baseTemplate(content));
+  },
+
   // Ticket resolved/closed notification
   async sendTicketResolved(email, nombre, codigo, titulo, estado, resolucion) {
     const estadoLabels = {
@@ -724,6 +790,152 @@ const emailService = {
       </p>
     `;
     return sendEmail(email, `Ticket ${codigo} ${estadoLabels[estado] || estado} - Portal INEMEC`, baseTemplate(content));
+  },
+
+  // Coordinator private comment notification to TI user
+  async sendCoordinatorCommentToTI(email, nombre, coordinadorNombre, ticketCodigo, ticketTitulo, comentario) {
+    const content = `
+      <h2>Nuevo Comentario del Coordinador</h2>
+      <p>Hola <strong>${nombre}</strong>,</p>
+      <p>El Coordinador TI ha dejado un comentario privado en un ticket asignado a ti.</p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; width: 40%;"><strong>Ticket:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">${ticketCodigo}</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Título:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">${ticketTitulo}</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9;"><strong>De:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">${coordinadorNombre}</td>
+        </tr>
+      </table>
+
+      <blockquote style="border-left: 4px solid #D52B1E; padding: 15px; margin: 20px 0; background: #fef2f0; border-radius: 0 4px 4px 0;">
+        ${comentario.replace(/\n/g, '<br>')}
+      </blockquote>
+
+      <p style="text-align: center; margin-top: 20px;">
+        <a href="${config.frontendUrl}/ti/tickets" class="button">Ver Ticket</a>
+      </p>
+    `;
+    return sendEmail(email, `Comentario Coordinador - Ticket ${ticketCodigo} - Portal INEMEC`, baseTemplate(content));
+  },
+
+  // New solicitud notification to NT team (immediate: reporte_fallo, cierre_servicio, transfer)
+  async sendNewSolicitudToNT(email, nombre, codigo, titulo, tipo, solicitanteNombre, extraInfo = {}) {
+    const tipoLabels = {
+      reporte_fallo: 'Reporte de Fallo/Error',
+      cierre_servicio: 'Cierre de Servicio',
+      transferido_ti: 'Transferida desde TI'
+    };
+
+    const tipoColors = {
+      reporte_fallo: '#f5222d',
+      cierre_servicio: '#fa8c16',
+      transferido_ti: '#1890ff'
+    };
+
+    let extraRows = '';
+    if (tipo === 'transferido_ti' && extraInfo.ticketCodigo) {
+      extraRows = `
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Ticket Origen:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">${extraInfo.ticketCodigo}</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Motivo:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">${extraInfo.motivo || '--'}</td>
+        </tr>
+      `;
+    }
+
+    const content = `
+      <h2>Nueva Solicitud Recibida</h2>
+      <p>Hola <strong>${nombre}</strong>,</p>
+      <p>Se ha recibido una nueva solicitud que requiere atención inmediata.</p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9; width: 40%;"><strong>Código:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">${codigo}</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Tipo:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">
+            <span style="color: ${tipoColors[tipo] || '#333'}; font-weight: bold;">${tipoLabels[tipo] || tipo}</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Título:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">${titulo}</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd; background: #f9f9f9;"><strong>Solicitante:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">${solicitanteNombre}</td>
+        </tr>
+        ${extraRows}
+      </table>
+
+      <p style="background: #fff7e6; padding: 15px; border-radius: 4px; border-left: 4px solid #fa8c16;">
+        Esta solicitud está pendiente de evaluación. Ingrese al portal para revisarla.
+      </p>
+
+      <p style="text-align: center; margin-top: 20px;">
+        <a href="${config.frontendUrl}/nt/solicitudes" class="button">Ver Solicitudes</a>
+      </p>
+    `;
+    return sendEmail(email, `Nueva Solicitud ${codigo} - ${tipoLabels[tipo] || tipo} - Portal INEMEC`, baseTemplate(content));
+  },
+
+  // Daily digest of pending solicitudes for NT team
+  async sendDailySolicitudesDigest(email, nombre, solicitudes) {
+    const tipoLabels = {
+      proyecto_nuevo_interno: 'Proyecto Nuevo (Interno)',
+      proyecto_nuevo_externo: 'Proyecto Nuevo (Externo)',
+      actualizacion: 'Actualización',
+      transferido_ti: 'Transferida desde TI'
+    };
+
+    let rows = '';
+    for (const sol of solicitudes) {
+      rows += `
+        <tr>
+          <td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">${sol.codigo}</td>
+          <td style="padding: 8px; border: 1px solid #ddd;">${tipoLabels[sol.tipo] || sol.tipo}</td>
+          <td style="padding: 8px; border: 1px solid #ddd;">${sol.titulo}</td>
+          <td style="padding: 8px; border: 1px solid #ddd;">${new Date(sol.creado_en).toLocaleDateString('es-CO')}</td>
+        </tr>
+      `;
+    }
+
+    const content = `
+      <h2>Solicitudes Pendientes de Evaluación</h2>
+      <p>Hola <strong>${nombre}</strong>,</p>
+      <p>Actualmente hay <strong>${solicitudes.length}</strong> solicitud(es) pendiente(s) de evaluación:</p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+        <thead>
+          <tr style="background: #D52B1E; color: white;">
+            <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Código</th>
+            <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Tipo</th>
+            <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Título</th>
+            <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Fecha</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+
+      <p style="text-align: center; margin-top: 20px;">
+        <a href="${config.frontendUrl}/nt/solicitudes" class="button">Ver Solicitudes</a>
+      </p>
+    `;
+    return sendEmail(email, `${solicitudes.length} Solicitud(es) Pendiente(s) - Portal INEMEC`, baseTemplate(content));
   }
 };
 

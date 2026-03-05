@@ -58,7 +58,16 @@ export const solicitudesApi = {
   get: (id) => api.get(`/solicitudes/${id}`),
   create: (data) => api.post('/solicitudes', data),
   updateEstado: (id, data) => api.put(`/solicitudes/${id}/estado`, data),
-  addComment: (id, data) => api.post(`/solicitudes/${id}/comentarios`, data),
+  addComment: (id, data, files = []) => {
+    if (files.length === 0) return api.post(`/solicitudes/${id}/comentarios`, data)
+    const formData = new FormData()
+    formData.append('contenido', data.contenido)
+    formData.append('tipo', data.tipo || 'interno')
+    files.forEach(f => formData.append('archivos', f.originFileObj || f))
+    return api.post(`/solicitudes/${id}/comentarios`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
   getHistory: (id) => api.get(`/solicitudes/${id}/historial`),
   checkStatus: (codigo) => api.get(`/solicitudes/consulta/${codigo}`),
   transferirTI: (id, data) => api.post(`/solicitudes/${id}/transferir-ti`, data),
@@ -101,7 +110,16 @@ export const ticketsApi = {
   update: (id, data) => api.put(`/tickets/${id}`, data),
   updateEstado: (id, data) => api.put(`/tickets/${id}/estado`, data),
   escalar: (id, data) => api.put(`/tickets/${id}/escalar`, data),
-  addComment: (id, data) => api.post(`/tickets/${id}/comentarios`, data),
+  addComment: (id, data, files = []) => {
+    if (files.length === 0) return api.post(`/tickets/${id}/comentarios`, data)
+    const formData = new FormData()
+    formData.append('contenido', data.contenido)
+    formData.append('tipo', data.tipo || 'interno')
+    files.forEach(f => formData.append('archivos', f.originFileObj || f))
+    return api.post(`/tickets/${id}/comentarios`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
   checkStatus: (codigo) => api.get(`/tickets/consulta/${codigo}`),
   transferirNT: (id, data) => api.post(`/tickets/${id}/transferir-nt`, data),
   updateCategoria: (id, data) => api.patch(`/tickets/${id}/categoria`, data),

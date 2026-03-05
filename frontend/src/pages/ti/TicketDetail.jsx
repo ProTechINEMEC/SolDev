@@ -8,9 +8,9 @@ import {
   ArrowLeftOutlined, SendOutlined, CheckOutlined, CloseOutlined,
   ExclamationCircleOutlined, UserSwitchOutlined, PlayCircleOutlined,
   SwapOutlined, StopOutlined, FilePdfOutlined, DownloadOutlined, FileOutlined,
-  TeamOutlined
+  TeamOutlined, PaperClipOutlined, UploadOutlined
 } from '@ant-design/icons'
-import { ticketsApi, usuariosApi, transferenciasApi, exportApi } from '../../services/api'
+import { ticketsApi, usuariosApi, transferenciasApi, exportApi, archivosApi } from '../../services/api'
 import { useAuthStore } from '../../stores/authStore'
 import dayjs from 'dayjs'
 
@@ -62,6 +62,7 @@ function TITicketDetail() {
   const [loading, setLoading] = useState(true)
   const [tiUsers, setTiUsers] = useState([])
   const [comment, setComment] = useState('')
+  const [commentFiles, setCommentFiles] = useState([])
   const [comentarioTipo, setComentarioTipo] = useState('interno')
   const [actionLoading, setActionLoading] = useState(false)
   const [escalarModalVisible, setEscalarModalVisible] = useState(false)
@@ -169,8 +170,9 @@ function TITicketDetail() {
   const handleAddComment = async () => {
     if (!comment.trim()) return
     try {
-      await ticketsApi.addComment(codigo, { contenido: comment, tipo: comentarioTipo })
+      await ticketsApi.addComment(codigo, { contenido: comment, tipo: comentarioTipo }, commentFiles)
       setComment('')
+      setCommentFiles([])
       if (comentarioTipo === 'comunicacion') {
         message.success('Comunicación enviada al solicitante por correo')
       } else {
@@ -787,6 +789,17 @@ function TITicketDetail() {
                   </Text>
                 </div>
                 <Paragraph style={{ marginTop: 4, whiteSpace: 'pre-wrap' }}>{c.contenido}</Paragraph>
+                {c.adjuntos && c.adjuntos.length > 0 && (
+                  <div style={{ marginTop: 4 }}>
+                    {c.adjuntos.map(a => (
+                      <a key={a.id} href={archivosApi.getDownloadUrl(a.id)} target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'inline-flex', alignItems: 'center', marginRight: 12, fontSize: 12, color: '#1890ff' }}>
+                        <PaperClipOutlined style={{ marginRight: 4 }} />
+                        {a.nombre_original} <Text type="secondary" style={{ marginLeft: 4, fontSize: 11 }}>({(a.tamano / 1024).toFixed(0)} KB)</Text>
+                      </a>
+                    ))}
+                  </div>
+                )}
               </Timeline.Item>
             ))}
           {(!comentarios || comentarios.length === 0) && (
@@ -812,21 +825,29 @@ function TITicketDetail() {
                 {comentarioTipo === 'comunicacion' && 'Se enviará por correo al solicitante con enlace para responder'}
               </Text>
             </Space>
-            <Space.Compact style={{ width: '100%' }}>
-              <TextArea
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-                placeholder={
-                  comentarioTipo === 'interno' ? 'Agregar nota interna...' :
-                  comentarioTipo === 'publico' ? 'Agregar comentario público...' :
-                  'Escribir pregunta o comunicación para el solicitante...'
-                }
-                rows={2}
-              />
+            <TextArea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder={
+                comentarioTipo === 'interno' ? 'Agregar nota interna...' :
+                comentarioTipo === 'publico' ? 'Agregar comentario público...' :
+                'Escribir pregunta o comunicación para el solicitante...'
+              }
+              rows={2}
+            />
+            <Space>
+              <Upload
+                fileList={commentFiles}
+                onChange={({ fileList }) => setCommentFiles(fileList)}
+                beforeUpload={() => false}
+                multiple
+              >
+                <Button icon={<UploadOutlined />}>Adjuntar Archivos</Button>
+              </Upload>
               <Button type="primary" icon={<SendOutlined />} onClick={handleAddComment}>
                 {comentarioTipo === 'comunicacion' ? 'Enviar Correo' : 'Enviar'}
               </Button>
-            </Space.Compact>
+            </Space>
           </Space>
         </div>
       </Card>

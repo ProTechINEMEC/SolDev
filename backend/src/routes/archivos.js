@@ -54,7 +54,8 @@ router.post('/upload', optionalAuth, uploadMultiple, async (req, res, next) => {
       'solucion_material',
       'adjuntos_generales',
       'reporte_evidencia',
-      'respuesta_comunicacion'
+      'respuesta_comunicacion',
+      'comentario'
     ];
     const safeOrigen = validOrigins.includes(origen) ? origen : 'creacion';
 
@@ -163,7 +164,8 @@ const origenLabels = {
   adjuntos_generales: 'Adjuntos Generales',
   reporte_evidencia: 'Reporte - Evidencia',
   respuesta_comunicacion: 'Respuesta a Comunicación',
-  creacion: 'Adjuntos del Solicitante'
+  creacion: 'Adjuntos del Solicitante',
+  comentario: 'Adjuntos de Comentarios'
 };
 
 // GET /api/archivos/entity/:tipo/:id - Get files for an entity
