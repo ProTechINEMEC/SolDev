@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react'
 import {
   Card, Table, Tag, Button, Space, Typography, Input, Select, Modal,
-  Form, message, Popconfirm, Switch, Row, Col
+  Form, message, Popconfirm, Switch, Row, Col, Alert, List
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined,
-  UserOutlined, LockOutlined
+  UserOutlined, LockOutlined, ExperimentOutlined
 } from '@ant-design/icons'
 import { usuariosApi } from '../../services/api'
+import { useAuthStore } from '../../stores/authStore'
 import dayjs from 'dayjs'
 
 const { Title, Text } = Typography
 
 const rolLabels = {
+  admin: 'Administrador',
   nuevas_tecnologias: 'Nuevas Tecnologías',
   ti: 'TI',
   gerencia: 'Gerencia',
@@ -21,6 +23,7 @@ const rolLabels = {
 }
 
 const rolColors = {
+  admin: 'purple',
   nuevas_tecnologias: 'red',
   ti: 'green',
   gerencia: 'gold',
@@ -35,10 +38,19 @@ function NTUsuarios() {
   const [editingUser, setEditingUser] = useState(null)
   const [filters, setFilters] = useState({ search: '', rol: null, activo: null })
   const [form] = Form.useForm()
+  const [testUsersStatus, setTestUsersStatus] = useState(null)
+  const [testUsersLoading, setTestUsersLoading] = useState(false)
+  const { user: currentUser } = useAuthStore()
 
   useEffect(() => {
     loadUsuarios()
   }, [filters])
+
+  useEffect(() => {
+    if (currentUser?.rol === 'admin') {
+      loadTestUsersStatus()
+    }
+  }, [currentUser])
 
   const loadUsuarios = async () => {
     setLoading(true)
@@ -55,6 +67,29 @@ function NTUsuarios() {
       message.error('Error al cargar usuarios')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadTestUsersStatus = async () => {
+    try {
+      const response = await usuariosApi.getTestUsersStatus()
+      setTestUsersStatus(response.data)
+    } catch (error) {
+      console.error('Error loading test users status:', error)
+    }
+  }
+
+  const handleToggleTestUsers = async (activo) => {
+    setTestUsersLoading(true)
+    try {
+      await usuariosApi.toggleTestUsers(activo)
+      message.success(activo ? 'Usuarios de prueba habilitados' : 'Usuarios de prueba deshabilitados')
+      loadTestUsersStatus()
+      loadUsuarios()
+    } catch (error) {
+      message.error('Error al cambiar estado de usuarios de prueba')
+    } finally {
+      setTestUsersLoading(false)
     }
   }
 
@@ -136,9 +171,15 @@ function NTUsuarios() {
       )
     },
     {
-      title: 'Email',
+      title: 'Usuario / Email',
       dataIndex: 'email',
-      key: 'email'
+      key: 'email',
+      render: (email, record) => (
+        <Space>
+          <Text>{email}</Text>
+          {record.es_prueba && <Tag color="orange">Prueba</Tag>}
+        </Space>
+      )
     },
     {
       title: 'Rol',
@@ -206,6 +247,52 @@ function NTUsuarios() {
         </Button>
       </div>
 
+      {/* Test Users Section - Admin Only */}
+      {currentUser?.rol === 'admin' && testUsersStatus && (
+        <Card
+          title={<><ExperimentOutlined /> Usuarios de Prueba</>}
+          style={{ marginBottom: 16 }}
+          extra={
+            <Switch
+              checked={testUsersStatus.enabled}
+              checkedChildren="Habilitados"
+              unCheckedChildren="Deshabilitados"
+              loading={testUsersLoading}
+              onChange={(checked) => handleToggleTestUsers(checked)}
+            />
+          }
+        >
+          <Alert
+            message={testUsersStatus.enabled
+              ? `${testUsersStatus.enabledCount} usuario(s) de prueba habilitados`
+              : 'Todos los usuarios de prueba estan deshabilitados'
+            }
+            type={testUsersStatus.enabled ? 'success' : 'info'}
+            showIcon
+            style={{ marginBottom: 12 }}
+          />
+          <List
+            size="small"
+            dataSource={testUsersStatus.users || []}
+            renderItem={(item) => (
+              <List.Item>
+                <Space>
+                  <Tag color={rolColors[item.rol]}>{rolLabels[item.rol]}</Tag>
+                  <Text strong>{item.email}</Text>
+                  <Text type="secondary">({item.nombre})</Text>
+                </Space>
+                <Tag color={item.activo ? 'green' : 'default'}>
+                  {item.activo ? 'Activo' : 'Inactivo'}
+                </Tag>
+              </List.Item>
+            )}
+          />
+          <Text type="secondary" style={{ fontSize: 12, marginTop: 8, display: 'block' }}>
+            Contrasena de prueba: Inemec2024
+          </Text>
+        </Card>
+      )}
+
       <Card>
         <Row gutter={16} style={{ marginBottom: 16 }}>
           <Col xs={24} sm={12} md={8}>
@@ -226,6 +313,7 @@ function NTUsuarios() {
               style={{ width: '100%' }}
               allowClear
             >
+              <Select.Option value="admin">Administrador</Select.Option>
               <Select.Option value="nuevas_tecnologias">Nuevas Tecnologías</Select.Option>
               <Select.Option value="ti">TI</Select.Option>
               <Select.Option value="gerencia">Gerencia</Select.Option>
@@ -276,13 +364,13 @@ function NTUsuarios() {
 
           <Form.Item
             name="email"
-            label="Email"
+            label="Usuario / Email"
             rules={[
-              { required: true, message: 'Ingrese el email' },
-              { type: 'email', message: 'Ingrese un email válido' }
+              { required: true, message: 'Ingrese el usuario o email' },
+              { min: 2, message: 'Minimo 2 caracteres' }
             ]}
           >
-            <Input prefix="@" />
+            <Input prefix={<UserOutlined />} />
           </Form.Item>
 
           <Form.Item
@@ -330,7 +418,7 @@ function NTUsuarios() {
         <div style={{ marginTop: 16, padding: 12, background: '#f5f5f5', borderRadius: 4 }}>
           <Text strong>Permisos por Rol:</Text>
           <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20 }}>
-            <li><Tag color="red">NT</Tag> Gestión completa de solicitudes, proyectos, usuarios y artículos</li>
+            <li><Tag color="red">NT</Tag> Gestión de solicitudes, proyectos y artículos</li>
             <li><Tag color="green">TI</Tag> Gestión de tickets de soporte técnico</li>
             <li><Tag color="gold">Gerencia</Tag> Aprobación de solicitudes y visualización de reportes</li>
             <li><Tag color="volcano">Coordinador NT</Tag> Revisión y aprobación de solicitudes antes de gerencia</li>

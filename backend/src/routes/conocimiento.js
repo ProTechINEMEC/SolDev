@@ -64,8 +64,9 @@ router.get('/articulos', optionalAuth, async (req, res, next) => {
     const params = [];
     let paramIndex = 1;
 
-    // Non-authenticated users only see published articles
-    if (!req.user || req.user.rol !== 'nuevas_tecnologias') {
+    // Only admin, NT, coordinador_nt, coordinador_ti can see unpublished articles
+    const canSeeDrafts = ['admin', 'nuevas_tecnologias', 'coordinador_nt', 'coordinador_ti'];
+    if (!req.user || !canSeeDrafts.includes(req.user.rol)) {
       query += ` AND a.publicado = true`;
     }
 
@@ -123,8 +124,9 @@ router.get('/articulos/:slug', optionalAuth, async (req, res, next) => {
       WHERE a.slug = $1 OR a.id::text = $1
     `;
 
-    // Non-NT users can only see published
-    if (!req.user || req.user.rol !== 'nuevas_tecnologias') {
+    // Only admin, NT, coordinador_nt, coordinador_ti can see unpublished
+    const canSeeDrafts = ['admin', 'nuevas_tecnologias', 'coordinador_nt', 'coordinador_ti'];
+    if (!req.user || !canSeeDrafts.includes(req.user.rol)) {
       query += ` AND a.publicado = true`;
     }
 
@@ -163,8 +165,8 @@ router.get('/articulos/:slug', optionalAuth, async (req, res, next) => {
   }
 });
 
-// POST /api/conocimiento/articulos - Create article (NT only)
-router.post('/articulos', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+// POST /api/conocimiento/articulos - Create article
+router.post('/articulos', authenticate, authorize('admin', 'nuevas_tecnologias', 'coordinador_nt', 'coordinador_ti'), async (req, res, next) => {
   try {
     const { error, value } = createArticuloSchema.validate(req.body);
     if (error) {
@@ -212,8 +214,8 @@ router.post('/articulos', authenticate, authorize('nuevas_tecnologias'), async (
   }
 });
 
-// PUT /api/conocimiento/articulos/:id - Update article (NT only)
-router.put('/articulos/:id', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+// PUT /api/conocimiento/articulos/:id - Update article
+router.put('/articulos/:id', authenticate, authorize('admin', 'nuevas_tecnologias', 'coordinador_nt', 'coordinador_ti'), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { error, value } = updateArticuloSchema.validate(req.body);
@@ -294,8 +296,8 @@ router.put('/articulos/:id', authenticate, authorize('nuevas_tecnologias'), asyn
   }
 });
 
-// DELETE /api/conocimiento/articulos/:id - Delete article (NT only)
-router.delete('/articulos/:id', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+// DELETE /api/conocimiento/articulos/:id - Delete article
+router.delete('/articulos/:id', authenticate, authorize('admin', 'nuevas_tecnologias', 'coordinador_nt', 'coordinador_ti'), async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -333,8 +335,8 @@ router.get('/categorias', async (req, res, next) => {
   }
 });
 
-// POST /api/conocimiento/categorias - Create category (NT only)
-router.post('/categorias', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+// POST /api/conocimiento/categorias - Create category
+router.post('/categorias', authenticate, authorize('admin', 'nuevas_tecnologias', 'coordinador_nt', 'coordinador_ti'), async (req, res, next) => {
   try {
     const { nombre, descripcion, orden = 0 } = req.body;
 
@@ -357,8 +359,8 @@ router.post('/categorias', authenticate, authorize('nuevas_tecnologias'), async 
   }
 });
 
-// PUT /api/conocimiento/categorias/:id - Update category (NT only)
-router.put('/categorias/:id', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+// PUT /api/conocimiento/categorias/:id - Update category
+router.put('/categorias/:id', authenticate, authorize('admin', 'nuevas_tecnologias', 'coordinador_nt', 'coordinador_ti'), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { nombre, descripcion, orden } = req.body;
@@ -385,8 +387,8 @@ router.put('/categorias/:id', authenticate, authorize('nuevas_tecnologias'), asy
   }
 });
 
-// DELETE /api/conocimiento/categorias/:id - Delete category (NT only)
-router.delete('/categorias/:id', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+// DELETE /api/conocimiento/categorias/:id - Delete category
+router.delete('/categorias/:id', authenticate, authorize('admin', 'nuevas_tecnologias', 'coordinador_nt', 'coordinador_ti'), async (req, res, next) => {
   try {
     const { id } = req.params;
 

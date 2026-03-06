@@ -492,8 +492,19 @@ router.get('/', authenticate, authorize('ti', 'coordinador_ti', 'nuevas_tecnolog
 
     const result = await pool.query(query, params);
 
+    // Hide description for TI/coordinador_ti users on unassigned (abierto) tickets
+    // to prevent cherry-picking easy tickets
+    const isTIRole = ['ti', 'coordinador_ti'].includes(req.user.rol);
+    const tickets = result.rows.map(t => {
+      if (isTIRole && t.estado === 'abierto') {
+        const { descripcion, ...rest } = t;
+        return { ...rest, descripcion: null };
+      }
+      return t;
+    });
+
     res.json({
-      tickets: result.rows,
+      tickets,
       pagination: {
         page: parseInt(page, 10),
         limit: parseInt(limit, 10),
@@ -614,8 +625,15 @@ router.get('/:codigo', authenticate, authorize('ti', 'coordinador_ti', 'nuevas_t
     );
     const transferOrigen = transferOrigenResult.rows[0] || null;
 
+    // Hide description for TI/coordinador_ti users on unassigned (abierto) tickets
+    // to prevent cherry-picking easy tickets
+    const isTIRole = ['ti', 'coordinador_ti'].includes(req.user.rol);
+    const ticketResponse = (isTIRole && ticket.estado === 'abierto')
+      ? { ...ticket, descripcion: null }
+      : ticket;
+
     res.json({
-      ticket,
+      ticket: ticketResponse,
       comentarios: comentarios.rows,
       archivos: archivos.rows,
       archivos_agrupados: Object.values(archivosAgrupados),
@@ -701,7 +719,7 @@ router.put('/:codigo/estado', authenticate, authorize('ti', 'nuevas_tecnologias'
     // Validate transitions
     const validTransitions = {
       ti: {
-        abierto: ['en_proceso', 'solucionado', 'no_realizado', 'escalado_nt', 'transferido_nt'],
+        abierto: ['en_proceso', 'escalado_nt', 'transferido_nt'], // Must take ticket (en_proceso) before resolving
         en_proceso: ['solucionado', 'no_realizado', 'escalado_nt', 'transferido_nt', 'abierto'],
         resuelto: ['cerrado', 'abierto', 'solucionado'],
         escalado_nt: [] // TI can't change escalated tickets

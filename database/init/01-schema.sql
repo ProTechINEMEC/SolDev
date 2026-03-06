@@ -81,6 +81,7 @@ CREATE TABLE usuarios (
   password_hash VARCHAR(255) NOT NULL,
   rol rol_usuario NOT NULL,
   activo BOOLEAN DEFAULT true,
+  es_prueba BOOLEAN DEFAULT false,
   creado_en TIMESTAMP DEFAULT NOW(),
   actualizado_en TIMESTAMP DEFAULT NOW(),
   ultimo_acceso TIMESTAMP
@@ -452,15 +453,15 @@ CREATE TRIGGER update_articulos_timestamp BEFORE UPDATE ON conocimiento_articulo
 -- INITIAL SEED DATA
 -- =====================================================
 
--- Default admin user (password: Admin123!)
-INSERT INTO usuarios (email, nombre, password_hash, rol) VALUES
-  ('admin@inemec.com', 'Administrador NT', '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/X4.OPxJCMV.4k0zHy', 'nuevas_tecnologias');
+-- Default admin user (password: Inemec2024)
+INSERT INTO usuarios (email, nombre, password_hash, rol, activo, es_prueba) VALUES
+  ('admin', 'Administrador NT', '$2a$12$l1shpubG.1u1mZ9aHoV5rOyXl1yj72dVx3aLsFu.OvQ6OYKRVpaYC', 'nuevas_tecnologias', true, false);
 
--- Sample users for each role (password: Test123!)
-INSERT INTO usuarios (email, nombre, password_hash, rol) VALUES
-  ('nt@inemec.com', 'Usuario NT', '$2a$12$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'nuevas_tecnologias'),
-  ('ti@inemec.com', 'Usuario TI', '$2a$12$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'ti'),
-  ('gerencia@inemec.com', 'Usuario Gerencia', '$2a$12$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'gerencia');
+-- Test users for each role (password: Inemec2024, disabled by default)
+INSERT INTO usuarios (email, nombre, password_hash, rol, activo, es_prueba) VALUES
+  ('nt', 'Usuario NT', '$2a$12$l1shpubG.1u1mZ9aHoV5rOyXl1yj72dVx3aLsFu.OvQ6OYKRVpaYC', 'nuevas_tecnologias', false, true),
+  ('ti', 'Usuario TI', '$2a$12$l1shpubG.1u1mZ9aHoV5rOyXl1yj72dVx3aLsFu.OvQ6OYKRVpaYC', 'ti', false, true),
+  ('gerencia', 'Usuario Gerencia', '$2a$12$l1shpubG.1u1mZ9aHoV5rOyXl1yj72dVx3aLsFu.OvQ6OYKRVpaYC', 'gerencia', false, true);
 
 -- Knowledge categories
 INSERT INTO conocimiento_categorias (nombre, descripcion, orden) VALUES
@@ -493,7 +494,7 @@ Navegue por las categorías o use la búsqueda para encontrar información espec
 
 Para solicitar nuevos artículos o reportar errores, contacte al equipo de Nuevas Tecnologías.',
   (SELECT id FROM conocimiento_categorias WHERE nombre = 'Guías Técnicas'),
-  (SELECT id FROM usuarios WHERE email = 'admin@inemec.com'),
+  (SELECT id FROM usuarios WHERE email = 'admin'),
   true,
   ARRAY['introduccion', 'guia', 'inicio']
 );

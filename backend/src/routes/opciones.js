@@ -67,7 +67,7 @@ router.get('/:categoria', async (req, res, next) => {
 });
 
 // GET /api/opciones - List all categories (NT only)
-router.get('/', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+router.get('/', authenticate, authorize('admin'), async (req, res, next) => {
   try {
     const result = await pool.query(`
       SELECT DISTINCT categoria, COUNT(*) as count
@@ -85,7 +85,7 @@ router.get('/', authenticate, authorize('nuevas_tecnologias'), async (req, res, 
 });
 
 // POST /api/opciones - Create new option (NT only)
-router.post('/', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+router.post('/', authenticate, authorize('admin'), async (req, res, next) => {
   try {
     const { error, value } = createOpcionSchema.validate(req.body);
     if (error) {
@@ -134,7 +134,7 @@ router.post('/', authenticate, authorize('nuevas_tecnologias'), async (req, res,
 });
 
 // PUT /api/opciones/:id - Update option (NT only)
-router.put('/:id', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+router.put('/:id', authenticate, authorize('admin'), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { error, value } = updateOpcionSchema.validate(req.body);
@@ -192,7 +192,7 @@ router.put('/:id', authenticate, authorize('nuevas_tecnologias'), async (req, re
 });
 
 // DELETE /api/opciones/:id - Soft delete option (NT only)
-router.delete('/:id', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+router.delete('/:id', authenticate, authorize('admin'), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { permanent } = req.query;
@@ -243,7 +243,7 @@ router.delete('/:id', authenticate, authorize('nuevas_tecnologias'), async (req,
 });
 
 // POST /api/opciones/:id/restore - Restore soft-deleted option (NT only)
-router.post('/:id/restore', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+router.post('/:id/restore', authenticate, authorize('admin'), async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -271,7 +271,7 @@ router.post('/:id/restore', authenticate, authorize('nuevas_tecnologias'), async
 });
 
 // POST /api/opciones/reorder - Reorder options (NT only)
-router.post('/reorder', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+router.post('/reorder', authenticate, authorize('admin'), async (req, res, next) => {
   try {
     const { categoria, ordenes } = req.body;
     // ordenes: [{ id: 1, orden: 0 }, { id: 2, orden: 1 }, ...]

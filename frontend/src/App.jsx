@@ -48,6 +48,9 @@ import GerenciaAprobacionDetail from './pages/gerencia/AprobacionDetail'
 import GerenciaReportes from './pages/gerencia/Reportes'
 import GerenciaCalendario from './pages/gerencia/CalendarioGeneral'
 
+// Admin Pages
+import AdminDashboard from './pages/admin/Dashboard'
+
 // Coordinador NT Pages
 import CoordinadorNTDashboard from './pages/coordinador-nt/Dashboard'
 import CoordinadorNTRevisiones from './pages/coordinador-nt/Revisiones'
@@ -73,6 +76,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   if (allowedRoles && !allowedRoles.includes(user?.rol)) {
     // Redirect to appropriate dashboard based on role
     const dashboardRoutes = {
+      admin: '/admin',
       nuevas_tecnologias: '/nt',
       ti: '/ti',
       coordinador_ti: '/ti',
@@ -104,6 +108,22 @@ function App() {
         <Route path="/reset-password/:token" element={<ResetPassword />} />
       </Route>
 
+      {/* Admin Routes */}
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <MainLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<AdminDashboard />} />
+        <Route path="usuarios" element={<NTUsuarios />} />
+        <Route path="configuracion" element={<OpcionesConfig />} />
+        <Route path="articulos" element={<NTArticulos />} />
+        <Route path="perfil" element={<Profile />} />
+      </Route>
+
       {/* NT Routes */}
       <Route
         path="/nt"
@@ -121,8 +141,6 @@ function App() {
         <Route path="proyectos/:codigo" element={<NTProyectoDetail />} />
         <Route path="calendario" element={<NTCalendario />} />
         <Route path="articulos" element={<NTArticulos />} />
-        <Route path="usuarios" element={<NTUsuarios />} />
-        <Route path="configuracion" element={<OpcionesConfig />} />
         <Route path="perfil" element={<Profile />} />
       </Route>
 
@@ -139,6 +157,7 @@ function App() {
         <Route path="tickets" element={<TITickets />} />
         <Route path="tickets/:codigo" element={<TITicketDetail />} />
         <Route path="calendario" element={<TICalendario />} />
+        <Route path="articulos" element={<NTArticulos />} />
         <Route path="estadisticas" element={<CoordinadorTIStats />} />
         <Route path="perfil" element={<Profile />} />
       </Route>
@@ -156,6 +175,7 @@ function App() {
         <Route path="revisiones" element={<CoordinadorNTRevisiones />} />
         <Route path="revision/:codigo" element={<CoordinadorNTRevisionDetail />} />
         <Route path="calendario" element={<GerenciaCalendario />} />
+        <Route path="articulos" element={<NTArticulos />} />
         <Route path="estadisticas" element={<CoordinadorNTStats />} />
         <Route path="perfil" element={<Profile />} />
       </Route>

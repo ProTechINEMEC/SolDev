@@ -19,6 +19,7 @@ function Login() {
 
       // Redirect based on role
       const routes = {
+        admin: '/admin',
         nuevas_tecnologias: '/nt',
         ti: '/ti',
         gerencia: '/gerencia',
@@ -55,14 +56,13 @@ function Login() {
           <Form.Item
             name="email"
             rules={[
-              { required: true, message: 'Ingrese su email' },
-              { type: 'email', message: 'Email inválido' }
+              { required: true, message: 'Ingrese su usuario' }
             ]}
           >
             <Input
               prefix={<UserOutlined />}
-              placeholder="Email"
-              autoComplete="email"
+              placeholder="Usuario"
+              autoComplete="username"
             />
           </Form.Item>
 

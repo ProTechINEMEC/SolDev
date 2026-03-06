@@ -14,9 +14,9 @@ const router = express.Router();
 
 // Validation schemas
 const loginSchema = Joi.object({
-  email: Joi.string().email().required().messages({
-    'string.email': 'Email inválido',
-    'any.required': 'Email es requerido'
+  email: Joi.string().min(2).max(255).required().messages({
+    'string.min': 'Usuario debe tener al menos 2 caracteres',
+    'any.required': 'Usuario es requerido'
   }),
   password: Joi.string().min(6).required().messages({
     'string.min': 'Contraseña debe tener al menos 6 caracteres',

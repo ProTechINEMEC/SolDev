@@ -16,15 +16,21 @@ const { Header, Content, Footer } = Layout
 const { Text } = Typography
 
 const roleLabels = {
+  admin: 'Administrador',
   nuevas_tecnologias: 'Nuevas Tecnologías',
   ti: 'Tecnologías de la Información',
-  gerencia: 'Gerencia'
+  coordinador_ti: 'Coordinador TI',
+  gerencia: 'Gerencia',
+  coordinador_nt: 'Coordinador NT'
 }
 
 const roleDashboardPaths = {
+  admin: '/admin',
   nuevas_tecnologias: '/nt',
   ti: '/ti',
-  gerencia: '/gerencia'
+  coordinador_ti: '/ti',
+  gerencia: '/gerencia',
+  coordinador_nt: '/coordinador-nt'
 }
 
 function PublicLayout() {

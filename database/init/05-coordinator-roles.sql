@@ -185,15 +185,16 @@ WHERE cerrado_forzado = true;
 -- 7. CREATE TEST COORDINATOR USERS
 -- =====================================================
 
--- Password hash for 'coord123' using bcrypt
--- $2b$10$8K1p/a0dL1LXMw0YeYl6L.FzwLRNS/8KqPsIIZq0w0Ql0Y7WbsXGi
+-- Password hash for 'Inemec2024' using bcrypt (12 rounds)
+-- Test users: disabled by default, es_prueba=true
 
-INSERT INTO usuarios (nombre, email, password_hash, rol, activo) VALUES
-  ('Coordinador NT', 'coord.nt@inemec.com', '$2b$10$8K1p/a0dL1LXMw0YeYl6L.FzwLRNS/8KqPsIIZq0w0Ql0Y7WbsXGi', 'coordinador_nt', true),
-  ('Coordinador TI', 'coord.ti@inemec.com', '$2b$10$8K1p/a0dL1LXMw0YeYl6L.FzwLRNS/8KqPsIIZq0w0Ql0Y7WbsXGi', 'coordinador_ti', true)
+INSERT INTO usuarios (nombre, email, password_hash, rol, activo, es_prueba) VALUES
+  ('Coordinador NT', 'coord.nt', '$2a$12$l1shpubG.1u1mZ9aHoV5rOyXl1yj72dVx3aLsFu.OvQ6OYKRVpaYC', 'coordinador_nt', false, true),
+  ('Coordinador TI', 'coord.ti', '$2a$12$l1shpubG.1u1mZ9aHoV5rOyXl1yj72dVx3aLsFu.OvQ6OYKRVpaYC', 'coordinador_ti', false, true)
 ON CONFLICT (email) DO UPDATE SET
   rol = EXCLUDED.rol,
-  activo = EXCLUDED.activo;
+  activo = EXCLUDED.activo,
+  es_prueba = EXCLUDED.es_prueba;
 
 -- =====================================================
 -- MIGRATION COMPLETE

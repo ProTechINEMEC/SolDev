@@ -8,21 +8,26 @@ const { pool } = require('../config/database');
 const emailService = require('./email');
 const notificationService = require('./notificationService');
 const logger = require('../utils/logger');
+const { isWorkday } = require('../utils/workdays');
 
 const scheduler = {
   /**
    * Start all scheduled tasks
    */
   start() {
-    // Weekly report generation - Mondays at 8:00 AM
+    // Weekly report generation - Mondays at 8:00 AM (workdays only)
     cron.schedule('0 8 * * 1', async () => {
+      if (!isWorkday(new Date())) {
+        logger.info('Skipping weekly report — today is a Colombian holiday');
+        return;
+      }
       logger.info('Running scheduled weekly report generation');
       await this.generateAndSendWeeklyReport();
     }, {
       timezone: 'America/Bogota'
     });
 
-    // Daily cleanup of expired tokens - Daily at 2:00 AM
+    // Daily cleanup of expired tokens - Daily at 2:00 AM (runs every day, system maintenance)
     cron.schedule('0 2 * * *', async () => {
       logger.info('Running scheduled token cleanup');
       await this.cleanupExpiredTokens();
@@ -30,39 +35,55 @@ const scheduler = {
       timezone: 'America/Bogota'
     });
 
-    // Daily reminder for pending approvals - Weekdays at 9:00 AM
+    // Daily reminder for pending approvals - Weekdays at 9:00 AM (workdays only)
     cron.schedule('0 9 * * 1-5', async () => {
+      if (!isWorkday(new Date())) {
+        logger.info('Skipping pending approvals reminder — today is a Colombian holiday');
+        return;
+      }
       logger.info('Running pending approvals reminder');
       await this.sendPendingApprovalsReminder();
     }, {
       timezone: 'America/Bogota'
     });
 
-    // Daily deadline check - Weekdays at 8:00 AM
+    // Daily deadline check - Weekdays at 8:00 AM (workdays only)
     cron.schedule('0 8 * * 1-5', async () => {
+      if (!isWorkday(new Date())) {
+        logger.info('Skipping deadline check — today is a Colombian holiday');
+        return;
+      }
       logger.info('Running deadline check');
       await notificationService.checkUpcomingDeadlines();
     }, {
       timezone: 'America/Bogota'
     });
 
-    // Daily reevaluation reminder - Weekdays at 10:00 AM
+    // Daily reevaluation reminder - Weekdays at 10:00 AM (workdays only)
     cron.schedule('0 10 * * 1-5', async () => {
+      if (!isWorkday(new Date())) {
+        logger.info('Skipping reevaluation reminder — today is a Colombian holiday');
+        return;
+      }
       logger.info('Running reevaluation reminder');
       await this.sendReevaluationReminder();
     }, {
       timezone: 'America/Bogota'
     });
 
-    // Daily pending solicitudes digest for NT - Weekdays at 8:00 AM
+    // Daily pending solicitudes digest for NT - Weekdays at 8:00 AM (workdays only)
     cron.schedule('0 8 * * 1-5', async () => {
+      if (!isWorkday(new Date())) {
+        logger.info('Skipping daily solicitudes digest — today is a Colombian holiday');
+        return;
+      }
       logger.info('Running daily solicitudes digest for NT');
       await this.sendDailySolicitudesDigest();
     }, {
       timezone: 'America/Bogota'
     });
 
-    logger.info('Scheduler started with timezone America/Bogota');
+    logger.info('Scheduler started with timezone America/Bogota (Colombian workday calendar enabled)');
   },
 
   /**

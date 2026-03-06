@@ -19,15 +19,21 @@ import dayjs from 'dayjs'
 const { Title, Text } = Typography
 
 const roleLabels = {
+  admin: 'Administrador',
   nuevas_tecnologias: 'Nuevas Tecnologias',
   ti: 'Tecnologias de la Informacion',
-  gerencia: 'Gerencia'
+  coordinador_ti: 'Coordinador TI',
+  gerencia: 'Gerencia',
+  coordinador_nt: 'Coordinador NT'
 }
 
 const roleColors = {
+  admin: '#722ed1',
   nuevas_tecnologias: 'red',
   ti: 'green',
-  gerencia: 'gold'
+  coordinador_ti: 'cyan',
+  gerencia: 'gold',
+  coordinador_nt: 'volcano'
 }
 
 function Profile() {
@@ -130,7 +136,7 @@ function Profile() {
 
         <Descriptions column={{ xs: 1, sm: 2 }} bordered size="small">
           <Descriptions.Item
-            label={<><MailOutlined /> Email</>}
+            label={<><MailOutlined /> Usuario / Email</>}
           >
             {profile?.email}
           </Descriptions.Item>

@@ -21,8 +21,8 @@ router.get('/solicitud/:codigo/pdf', authenticate, async (req, res, next) => {
   try {
     const { codigo } = req.params;
 
-    // Verify access (NT and Gerencia can export)
-    if (!['nuevas_tecnologias', 'gerencia'].includes(req.user.rol)) {
+    // Verify access (admin, NT, and Gerencia can export)
+    if (!['admin', 'nuevas_tecnologias', 'gerencia'].includes(req.user.rol)) {
       throw new AppError('No autorizado para exportar solicitudes', 403);
     }
 
@@ -53,7 +53,7 @@ router.get('/solicitud/:codigo/pdf', authenticate, async (req, res, next) => {
  * GET /api/export/ticket/:codigo/pdf
  * Export a ticket as PDF
  */
-router.get('/ticket/:codigo/pdf', authenticate, authorize('ti', 'nuevas_tecnologias'), async (req, res, next) => {
+router.get('/ticket/:codigo/pdf', authenticate, authorize('admin', 'ti', 'nuevas_tecnologias'), async (req, res, next) => {
   try {
     const { codigo } = req.params;
 
@@ -84,7 +84,7 @@ router.get('/ticket/:codigo/pdf', authenticate, authorize('ti', 'nuevas_tecnolog
  * GET /api/export/evaluacion/:id/pdf
  * Export an evaluation as PDF (includes cronograma and cost estimation)
  */
-router.get('/evaluacion/:id/pdf', authenticate, authorize('nuevas_tecnologias', 'gerencia'), async (req, res, next) => {
+router.get('/evaluacion/:id/pdf', authenticate, authorize('admin', 'nuevas_tecnologias', 'gerencia'), async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -117,7 +117,7 @@ router.get('/evaluacion/:id/pdf', authenticate, authorize('nuevas_tecnologias', 
  * GET /api/export/proyecto/:id/pdf
  * Export a project as PDF
  */
-router.get('/proyecto/:id/pdf', authenticate, authorize('nuevas_tecnologias', 'gerencia'), async (req, res, next) => {
+router.get('/proyecto/:id/pdf', authenticate, authorize('admin', 'nuevas_tecnologias', 'gerencia'), async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -145,7 +145,7 @@ router.get('/proyecto/:id/pdf', authenticate, authorize('nuevas_tecnologias', 'g
  * GET /api/export/reporte-semanal/pdf
  * Export weekly report as PDF
  */
-router.get('/reporte-semanal/pdf', authenticate, authorize('nuevas_tecnologias', 'gerencia'), async (req, res, next) => {
+router.get('/reporte-semanal/pdf', authenticate, authorize('admin', 'nuevas_tecnologias', 'gerencia'), async (req, res, next) => {
   try {
     const { fecha } = req.query;
 
@@ -181,7 +181,7 @@ router.get('/reporte-semanal/pdf', authenticate, authorize('nuevas_tecnologias',
  * GET /api/export/audit-log
  * Export audit log as Excel
  */
-router.get('/audit-log', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
+router.get('/audit-log', authenticate, authorize('admin'), async (req, res, next) => {
   try {
     const { desde, hasta, entidad_tipo, limit = 10000 } = req.query;
 
@@ -280,7 +280,7 @@ router.get('/audit-log', authenticate, authorize('nuevas_tecnologias'), async (r
  * GET /api/export/solicitudes
  * Export solicitudes list as Excel
  */
-router.get('/solicitudes', authenticate, authorize('nuevas_tecnologias', 'gerencia'), async (req, res, next) => {
+router.get('/solicitudes', authenticate, authorize('admin', 'nuevas_tecnologias', 'gerencia'), async (req, res, next) => {
   try {
     const { desde, hasta, estado, tipo } = req.query;
 
@@ -367,7 +367,7 @@ router.get('/solicitudes', authenticate, authorize('nuevas_tecnologias', 'gerenc
  * GET /api/export/tickets
  * Export tickets list as Excel
  */
-router.get('/tickets', authenticate, authorize('ti', 'nuevas_tecnologias'), async (req, res, next) => {
+router.get('/tickets', authenticate, authorize('admin', 'ti', 'nuevas_tecnologias'), async (req, res, next) => {
   try {
     const { desde, hasta, estado, categoria } = req.query;
 

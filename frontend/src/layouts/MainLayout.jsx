@@ -30,14 +30,18 @@ const { Text } = Typography
 
 // Menu items by role
 const menuItems = {
+  admin: [
+    { key: '/admin', icon: <DashboardOutlined />, label: 'Dashboard' },
+    { key: '/admin/usuarios', icon: <TeamOutlined />, label: 'Usuarios' },
+    { key: '/admin/articulos', icon: <BookOutlined />, label: 'Articulos' },
+    { key: '/admin/configuracion', icon: <SettingOutlined />, label: 'Configuracion' }
+  ],
   nuevas_tecnologias: [
     { key: '/nt', icon: <DashboardOutlined />, label: 'Dashboard' },
     { key: '/nt/solicitudes', icon: <FileTextOutlined />, label: 'Solicitudes' },
     { key: '/nt/proyectos', icon: <ProjectOutlined />, label: 'Proyectos' },
     { key: '/nt/calendario', icon: <CalendarOutlined />, label: 'Calendario' },
-    { key: '/nt/articulos', icon: <BookOutlined />, label: 'Articulos' },
-    { key: '/nt/usuarios', icon: <TeamOutlined />, label: 'Usuarios' },
-    { key: '/nt/configuracion', icon: <SettingOutlined />, label: 'Configuracion' }
+    { key: '/nt/articulos', icon: <BookOutlined />, label: 'Articulos' }
   ],
   ti: [
     { key: '/ti', icon: <DashboardOutlined />, label: 'Dashboard' },
@@ -48,6 +52,7 @@ const menuItems = {
     { key: '/ti', icon: <DashboardOutlined />, label: 'Dashboard' },
     { key: '/ti/tickets', icon: <ToolOutlined />, label: 'Todos los Tickets' },
     { key: '/ti/calendario', icon: <CalendarOutlined />, label: 'Calendario' },
+    { key: '/ti/articulos', icon: <BookOutlined />, label: 'Articulos' },
     { key: '/ti/estadisticas', icon: <BarChartOutlined />, label: 'Estadisticas' }
   ],
   gerencia: [
@@ -60,11 +65,13 @@ const menuItems = {
     { key: '/coordinador-nt', icon: <DashboardOutlined />, label: 'Dashboard' },
     { key: '/coordinador-nt/revisiones', icon: <CheckCircleOutlined />, label: 'Revisiones' },
     { key: '/coordinador-nt/calendario', icon: <CalendarOutlined />, label: 'Calendario' },
+    { key: '/coordinador-nt/articulos', icon: <BookOutlined />, label: 'Articulos' },
     { key: '/coordinador-nt/estadisticas', icon: <BarChartOutlined />, label: 'Estadisticas' }
   ]
 }
 
 const roleLabels = {
+  admin: 'Administrador',
   nuevas_tecnologias: 'Nuevas Tecnologias',
   ti: 'Tecnologias de la Informacion',
   coordinador_ti: 'Coordinador TI',
@@ -100,6 +107,7 @@ function MainLayout() {
   // Get base path for current role
   const getBasePath = () => {
     const roleBasePaths = {
+      admin: '/admin',
       nuevas_tecnologias: '/nt',
       ti: '/ti',
       coordinador_ti: '/ti',

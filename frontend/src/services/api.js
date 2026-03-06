@@ -168,7 +168,9 @@ export const usuariosApi = {
   create: (data) => api.post('/usuarios', data),
   update: (id, data) => api.put(`/usuarios/${id}`, data),
   delete: (id) => api.delete(`/usuarios/${id}`),
-  getByRole: (rol) => api.get(`/usuarios/rol/${rol}`)
+  getByRole: (rol) => api.get(`/usuarios/rol/${rol}`),
+  toggleTestUsers: (activo) => api.put('/usuarios/test-users/toggle', { activo }),
+  getTestUsersStatus: () => api.get('/usuarios/test-users/status')
 }
 
 export const conocimientoApi = {

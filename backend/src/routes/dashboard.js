@@ -408,6 +408,79 @@ router.get('/coordinador-ti', authenticate, authorize('coordinador_ti'), async (
   }
 });
 
+// GET /api/dashboard/admin - Admin Dashboard
+router.get('/admin', authenticate, authorize('admin'), async (req, res, next) => {
+  try {
+    // User stats (exclude test and admin users)
+    const userStats = await pool.query(`
+      SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE activo = true) as activos,
+        COUNT(*) FILTER (WHERE activo = false) as inactivos,
+        COUNT(*) FILTER (WHERE rol = 'nuevas_tecnologias') as nt,
+        COUNT(*) FILTER (WHERE rol = 'ti') as ti,
+        COUNT(*) FILTER (WHERE rol = 'gerencia') as gerencia,
+        COUNT(*) FILTER (WHERE rol = 'coordinador_nt') as coordinador_nt,
+        COUNT(*) FILTER (WHERE rol = 'coordinador_ti') as coordinador_ti
+      FROM usuarios
+      WHERE es_prueba = false AND rol != 'admin'
+    `);
+
+    // Recent system activity
+    const recentActivity = await pool.query(`
+      SELECT h.id, h.entidad_tipo, h.entidad_id, h.accion, h.creado_en,
+             u.nombre as usuario_nombre
+      FROM historial_cambios h
+      LEFT JOIN usuarios u ON h.usuario_id = u.id
+      ORDER BY h.creado_en DESC
+      LIMIT 10
+    `);
+
+    // Global counts
+    const globalCounts = await pool.query(`
+      SELECT
+        (SELECT COUNT(*) FROM solicitudes) as total_solicitudes,
+        (SELECT COUNT(*) FROM solicitudes WHERE estado IN ('pendiente_evaluacion_nt', 'pendiente_revision_coordinador_nt', 'pendiente_aprobacion_gerencia')) as solicitudes_pendientes,
+        (SELECT COUNT(*) FROM tickets) as total_tickets,
+        (SELECT COUNT(*) FROM tickets WHERE estado IN ('abierto', 'en_proceso')) as tickets_abiertos,
+        (SELECT COUNT(*) FROM proyectos) as total_proyectos,
+        (SELECT COUNT(*) FROM proyectos WHERE estado IN ('planificacion', 'en_desarrollo')) as proyectos_activos
+    `);
+
+    // Test users status
+    const testUsersStatus = await pool.query(`
+      SELECT
+        COUNT(*) as count,
+        COUNT(*) FILTER (WHERE activo = true) as enabled_count
+      FROM usuarios WHERE es_prueba = true
+    `);
+
+    const testCount = parseInt(testUsersStatus.rows[0].count, 10);
+    const testEnabledCount = parseInt(testUsersStatus.rows[0].enabled_count, 10);
+
+    // Notifications
+    const notificaciones = await pool.query(`
+      SELECT * FROM notificaciones
+      WHERE usuario_id = $1 AND leida = false
+      ORDER BY creado_en DESC LIMIT 10
+    `, [req.user.id]);
+
+    res.json({
+      users: userStats.rows[0],
+      recentActivity: recentActivity.rows,
+      counts: globalCounts.rows[0],
+      testUsers: {
+        enabled: testEnabledCount > 0 && testEnabledCount === testCount,
+        count: testCount,
+        enabledCount: testEnabledCount
+      },
+      notificaciones: notificaciones.rows
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // PUT /api/dashboard/notificaciones/:id/leer - Mark notification as read
 router.put('/notificaciones/:id/leer', authenticate, async (req, res, next) => {
   try {
