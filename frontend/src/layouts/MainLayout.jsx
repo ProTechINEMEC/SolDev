@@ -40,6 +40,7 @@ const menuItems = {
     { key: '/nt', icon: <DashboardOutlined />, label: 'Dashboard' },
     { key: '/nt/solicitudes', icon: <FileTextOutlined />, label: 'Solicitudes' },
     { key: '/nt/proyectos', icon: <ProjectOutlined />, label: 'Proyectos' },
+    { key: '/nt/implementacion', icon: <ToolOutlined />, label: 'Implementación' },
     { key: '/nt/calendario', icon: <CalendarOutlined />, label: 'Calendario' },
     { key: '/nt/articulos', icon: <BookOutlined />, label: 'Articulos' }
   ],
@@ -58,12 +59,16 @@ const menuItems = {
   gerencia: [
     { key: '/gerencia', icon: <DashboardOutlined />, label: 'Dashboard' },
     { key: '/gerencia/aprobaciones', icon: <CheckCircleOutlined />, label: 'Aprobaciones' },
+    { key: '/gerencia/proyectos', icon: <ProjectOutlined />, label: 'Proyectos' },
+    { key: '/gerencia/implementacion', icon: <ToolOutlined />, label: 'Implementación' },
     { key: '/gerencia/calendario', icon: <CalendarOutlined />, label: 'Calendario' },
     { key: '/gerencia/reportes', icon: <BarChartOutlined />, label: 'Reportes' }
   ],
   coordinador_nt: [
     { key: '/coordinador-nt', icon: <DashboardOutlined />, label: 'Dashboard' },
     { key: '/coordinador-nt/revisiones', icon: <CheckCircleOutlined />, label: 'Revisiones' },
+    { key: '/coordinador-nt/proyectos', icon: <ProjectOutlined />, label: 'Proyectos' },
+    { key: '/coordinador-nt/implementacion', icon: <ToolOutlined />, label: 'Implementación' },
     { key: '/coordinador-nt/calendario', icon: <CalendarOutlined />, label: 'Calendario' },
     { key: '/coordinador-nt/articulos', icon: <BookOutlined />, label: 'Articulos' },
     { key: '/coordinador-nt/estadisticas', icon: <BarChartOutlined />, label: 'Estadisticas' }

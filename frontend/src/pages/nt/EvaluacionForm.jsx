@@ -14,7 +14,8 @@ import {
 import {
   solicitudesApi, evaluacionesApi, cronogramasApi, estimacionesApi, usuariosApi
 } from '../../services/api'
-import WorkloadChart from '../../components/WorkloadChart'
+import GanttChart from '../../components/GanttChart'
+import { addWorkdaysFE } from '../../utils/workdays'
 
 const { Title, Text, Paragraph } = Typography
 const { TextArea } = Input
@@ -856,15 +857,30 @@ function EvaluacionForm() {
               )}
             </Card>
 
-            {/* Step 1d: Workload Visualization */}
-            {cronogramaData.equipoIds.length > 0 && cronogramaData.tareas.length > 0 && (
-              <WorkloadChart
-                equipo={ntUsers.filter(u => cronogramaData.equipoIds.includes(u.id))}
-                tareas={cronogramaData.tareas}
-                liderId={cronogramaData.liderId}
-                fases={cronogramaData.fases}
-              />
-            )}
+            {/* Step 1d: Gantt Visualization (Planning Mode) */}
+            {cronogramaData.tareas.length > 0 && (() => {
+              // Transform cronograma tasks into GanttChart format with projected dates
+              const startDate = resumenForm.getFieldValue('fecha_inicio_posible')?.toDate() || new Date()
+              let cursor = new Date(startDate)
+              const ganttTareas = []
+              for (const fase of cronogramaData.fases) {
+                const faseTasks = cronogramaData.tareas.filter(t => t.fase === fase)
+                for (const t of faseTasks) {
+                  const fi = new Date(cursor)
+                  const ff = addWorkdaysFE(fi, (t.duracion_dias || 1) - 1, [])
+                  ganttTareas.push({
+                    ...t, fase,
+                    titulo: t.nombre || t.titulo,
+                    fecha_inicio: fi.toISOString().split('T')[0],
+                    fecha_fin: ff.toISOString().split('T')[0],
+                    asignado_nombre: ntUsers.find(u => (t.asignados_ids || []).includes(u.id))?.nombre || null,
+                    progreso: 0
+                  })
+                  cursor = addWorkdaysFE(ff, 1, [])
+                }
+              }
+              return <GanttChart tareas={ganttTareas} planningMode disabled />
+            })()}
 
             <div style={{ marginTop: 16 }}>
               <Space>
@@ -1090,17 +1106,60 @@ function EvaluacionForm() {
                   </Text>
                 </Col>
               </Row>
-              {cronogramaData.equipoIds.length > 0 && cronogramaData.tareas.length > 0 && (
-                <div style={{ marginTop: 16 }}>
-                  <WorkloadChart
-                    equipo={ntUsers.filter(u => cronogramaData.equipoIds.includes(u.id))}
-                    tareas={cronogramaData.tareas}
-                    liderId={cronogramaData.liderId}
-                    fases={cronogramaData.fases}
-                  />
-                </div>
-              )}
+              {cronogramaData.tareas.length > 0 && (() => {
+                const startDate = resumenForm.getFieldValue('fecha_inicio_posible')?.toDate() || new Date()
+                let cursor = new Date(startDate)
+                const ganttTareas = []
+                for (const fase of cronogramaData.fases) {
+                  const faseTasks = cronogramaData.tareas.filter(t => t.fase === fase)
+                  for (const t of faseTasks) {
+                    const fi = new Date(cursor)
+                    const ff = addWorkdaysFE(fi, (t.duracion_dias || 1) - 1, [])
+                    ganttTareas.push({
+                      ...t, fase, titulo: t.nombre || t.titulo,
+                      fecha_inicio: fi.toISOString().split('T')[0],
+                      fecha_fin: ff.toISOString().split('T')[0],
+                      asignado_nombre: ntUsers.find(u => (t.asignados_ids || []).includes(u.id))?.nombre || null,
+                      progreso: 0
+                    })
+                    cursor = addWorkdaysFE(ff, 1, [])
+                  }
+                }
+                return (
+                  <div style={{ marginTop: 16 }}>
+                    <GanttChart tareas={ganttTareas} planningMode disabled />
+                  </div>
+                )
+              })()}
             </Card>
+
+            {/* Integration Plan from Solicitud */}
+            {solicitud?.integracion?.tareas?.length > 0 && (
+              <Card title="Plan de Implementación (solicitante)" size="small" style={{ marginTop: 16 }}>
+                {(() => {
+                  let cursor = new Date()
+                  const implTareas = []
+                  const implFases = solicitud.integracion.fases || []
+                  for (const fase of implFases) {
+                    const faseTasks = solicitud.integracion.tareas.filter(t => t.fase === fase)
+                    for (const t of faseTasks) {
+                      const fi = new Date(cursor)
+                      const ff = addWorkdaysFE(fi, (t.duracion_dias || 1) - 1, [])
+                      implTareas.push({
+                        id: `impl-${implTareas.length}`,
+                        titulo: t.nombre,
+                        fase,
+                        fecha_inicio: fi.toISOString().split('T')[0],
+                        fecha_fin: ff.toISOString().split('T')[0],
+                        progreso: 0
+                      })
+                      cursor = addWorkdaysFE(ff, 1, [])
+                    }
+                  }
+                  return <GanttChart tareas={implTareas} planningMode disabled members={[]} />
+                })()}
+              </Card>
+            )}
 
             {/* Monetary Benefits from Solicitud */}
             <Title level={5} style={{ marginTop: 24, marginBottom: 16 }}>Beneficios Reportados por el Solicitante</Title>

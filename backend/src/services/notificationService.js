@@ -278,6 +278,81 @@ const notificationService = {
   },
 
   /**
+   * Handle project status change - send notifications on key transitions
+   */
+  async onProyectoStatusChange(proyectoId, estadoAnterior, nuevoEstado, userId, extras = {}) {
+    try {
+      const result = await pool.query(`
+        SELECT p.*, s.codigo as solicitud_codigo, s.solicitante_id,
+               sol.email as solicitante_email, sol.nombre as solicitante_nombre
+        FROM proyectos p
+        LEFT JOIN solicitudes s ON p.solicitud_id = s.id
+        LEFT JOIN solicitantes sol ON s.solicitante_id = sol.id
+        WHERE p.id = $1
+      `, [proyectoId]);
+
+      if (result.rows.length === 0) return;
+      const proyecto = result.rows[0];
+
+      if (nuevoEstado === 'en_implementacion') {
+        await this.notifyByRole(
+          'nuevas_tecnologias',
+          'proyecto_implementacion',
+          `Proyecto en implementación: ${proyecto.codigo}`,
+          `El proyecto "${proyecto.titulo}" pasó a fase de implementación`,
+          { proyecto_id: proyectoId, codigo: proyecto.codigo }
+        );
+        await this.notifyByRole(
+          'gerencia',
+          'proyecto_implementacion',
+          `Proyecto en implementación: ${proyecto.codigo}`,
+          `El proyecto "${proyecto.titulo}" pasó a fase de implementación`,
+          { proyecto_id: proyectoId, codigo: proyecto.codigo }
+        );
+      }
+
+      if (nuevoEstado === 'solucionado') {
+        await this.notifyByRole(
+          'nuevas_tecnologias',
+          'proyecto_solucionado',
+          `Proyecto finalizado: ${proyecto.codigo}`,
+          `El proyecto "${proyecto.titulo}" ha sido finalizado exitosamente`,
+          { proyecto_id: proyectoId, codigo: proyecto.codigo }
+        );
+        await this.notifyByRole(
+          'gerencia',
+          'proyecto_solucionado',
+          `Proyecto finalizado: ${proyecto.codigo}`,
+          `El proyecto "${proyecto.titulo}" ha sido finalizado exitosamente`,
+          { proyecto_id: proyectoId, codigo: proyecto.codigo }
+        );
+      }
+
+      if (['cancelado', 'cancelado_coordinador', 'cancelado_gerencia', 'cancelado_proyecto'].includes(nuevoEstado)) {
+        const motivo = extras.motivo || '';
+        await this.notifyByRole(
+          'nuevas_tecnologias',
+          'proyecto_cancelado',
+          `Proyecto cancelado: ${proyecto.codigo}`,
+          `El proyecto "${proyecto.titulo}" fue cancelado${motivo ? ': ' + motivo : ''}`,
+          { proyecto_id: proyectoId, codigo: proyecto.codigo, motivo }
+        );
+        await this.notifyByRole(
+          'gerencia',
+          'proyecto_cancelado',
+          `Proyecto cancelado: ${proyecto.codigo}`,
+          `El proyecto "${proyecto.titulo}" fue cancelado${motivo ? ': ' + motivo : ''}`,
+          { proyecto_id: proyectoId, codigo: proyecto.codigo, motivo }
+        );
+      }
+
+      logger.info(`Project notifications sent for ${proyecto.codigo}: ${estadoAnterior} -> ${nuevoEstado}`);
+    } catch (error) {
+      logger.error('Error in onProyectoStatusChange:', error);
+    }
+  },
+
+  /**
    * Handle ticket transfer to NT
    */
   async onTicketTransferToNT(ticketId, solicitudId, ticketCodigo, solicitudCodigo, motivo) {

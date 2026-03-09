@@ -14,6 +14,7 @@ import {
   SaveOutlined, PlusOutlined, MinusCircleOutlined, UploadOutlined, CheckCircleOutlined
 } from '@ant-design/icons'
 import { solicitudesApi, transferenciasApi, exportApi, opcionesApi, archivosApi } from '../../services/api'
+import IntegracionDisplay from '../../components/IntegracionDisplay'
 import dayjs from 'dayjs'
 
 const { Title, Text, Paragraph } = Typography
@@ -2410,6 +2411,7 @@ function NTSolicitudDetail() {
           {renderProblematica()}
           {renderUrgencia()}
           {renderSolucion()}
+          <IntegracionDisplay integracion={solicitud.integracion} />
           {renderBeneficios()}
           {renderDesempeno()}
         </>
@@ -2442,6 +2444,7 @@ function NTSolicitudDetail() {
         {renderProblematica()}
         {renderUrgencia()}
         {renderSolucion()}
+        <IntegracionDisplay integracion={solicitud.integracion} />
         {renderBeneficios()}
         {renderDesempeno()}
       </>

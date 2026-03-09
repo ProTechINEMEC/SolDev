@@ -13,7 +13,8 @@ import {
   DesempenoSection,
   AdjuntosSection,
   DeclaracionSection,
-  ProyectoSelectorSection
+  ProyectoSelectorSection,
+  IntegracionSection
 } from '../../../components/forms/sections'
 
 const { Title, Text, Paragraph } = Typography
@@ -95,6 +96,12 @@ function ProyectoNuevoForm({ tipo = 'proyecto_nuevo_interno', sessionToken, onBa
         title: 'Desempeño',
         sectionNumber: currentSection++,
         content: <DesempenoSection form={form} sectionNumber={currentSection - 1} />
+      },
+      {
+        key: 'integracion',
+        title: 'Implementación',
+        sectionNumber: currentSection++,
+        content: <IntegracionSection form={form} sectionNumber={currentSection - 1} />
       },
       {
         key: 'adjuntos',
@@ -222,6 +229,7 @@ function ProyectoNuevoForm({ tipo = 'proyecto_nuevo_interno', sessionToken, onBa
         solucion: values.solucion,
         beneficios: values.beneficios,
         desempeno: values.desempeno,
+        integracion: values.integracion || { fases: [], tareas: [] },
         adjuntos: values.adjuntos,
         declaracion: values.declaracion
       }

@@ -9,12 +9,13 @@ import {
   CalendarOutlined, ProjectOutlined, ToolOutlined,
   CheckCircleOutlined, ClockCircleOutlined, FilterOutlined, EyeOutlined,
   ExclamationCircleOutlined, RocketOutlined, ScheduleOutlined, ReloadOutlined,
-  FileTextOutlined
+  FileTextOutlined, DownOutlined, RightOutlined
 } from '@ant-design/icons'
 import FullCalendar from '@fullcalendar/react'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import { calendarioApi, ticketsApi, solicitudesApi } from '../../services/api'
+import GanttChart from '../../components/GanttChart'
 import dayjs from 'dayjs'
 import 'dayjs/locale/es'
 
@@ -59,6 +60,7 @@ function CalendarioGeneral() {
   const [showTicketsTI, setShowTicketsTI] = useState(true)
   const [showSolicitudesNT, setShowSolicitudesNT] = useState(true)
   const [filterPrioridad, setFilterPrioridad] = useState(null)
+  const [expandedProjects, setExpandedProjects] = useState({})
 
   // Calendar view range - use wide range for data
   const dateRangeRef = useRef({
@@ -667,6 +669,34 @@ function CalendarioGeneral() {
                               )}
                             </Col>
                           </Row>
+
+                          {/* Gantt toggle */}
+                          {proyecto.tareas?.length > 0 && (
+                            <div style={{ marginTop: 8 }}>
+                              <Button
+                                type="link"
+                                size="small"
+                                icon={expandedProjects[proyecto.id] ? <DownOutlined /> : <RightOutlined />}
+                                onClick={() => setExpandedProjects(prev => ({
+                                  ...prev,
+                                  [proyecto.id]: !prev[proyecto.id]
+                                }))}
+                                style={{ padding: 0, fontSize: 12 }}
+                              >
+                                {expandedProjects[proyecto.id] ? 'Ocultar Gantt' : 'Ver Gantt'}
+                                {` (${proyecto.tareas.length} tareas)`}
+                              </Button>
+                              {expandedProjects[proyecto.id] && (
+                                <div style={{ marginTop: 8 }}>
+                                  <GanttChart
+                                    tareas={proyecto.tareas}
+                                    disabled={true}
+                                    holidays={festivos.map(f => f.fecha)}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </Card>
                       )
                     })}
@@ -740,6 +770,35 @@ function CalendarioGeneral() {
                               />
                             )}
                           </div>
+
+                          {/* Gantt toggle for scheduled projects */}
+                          {proyecto.tareas?.length > 0 && (
+                            <div style={{ marginTop: 8 }}>
+                              <Button
+                                type="link"
+                                size="small"
+                                icon={expandedProjects[`sched-${proyecto.id}`] ? <DownOutlined /> : <RightOutlined />}
+                                onClick={() => setExpandedProjects(prev => ({
+                                  ...prev,
+                                  [`sched-${proyecto.id}`]: !prev[`sched-${proyecto.id}`]
+                                }))}
+                                style={{ padding: 0, fontSize: 12 }}
+                              >
+                                {expandedProjects[`sched-${proyecto.id}`] ? 'Ocultar Gantt' : 'Ver Gantt'}
+                                {` (${proyecto.tareas.length} tareas)`}
+                              </Button>
+                              {expandedProjects[`sched-${proyecto.id}`] && (
+                                <div style={{ marginTop: 8 }}>
+                                  <GanttChart
+                                    tareas={proyecto.tareas}
+                                    disabled={true}
+                                    planningMode={true}
+                                    holidays={festivos.map(f => f.fecha)}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </List.Item>
                     )

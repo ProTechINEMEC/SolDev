@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { Card, Typography, Input, Button, Upload, message, Spin, Result, Alert, Space, Tag } from 'antd'
-import { SendOutlined, UploadOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
+import { Card, Typography, Input, Button, Upload, message, Spin, Result, Alert, Space, Tag, DatePicker } from 'antd'
+import { SendOutlined, UploadOutlined, CheckCircleOutlined, CloseCircleOutlined, CalendarOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import api from '../../services/api'
 
@@ -16,6 +16,7 @@ function ResponsePage() {
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [contenido, setContenido] = useState('')
+  const [selectedDate, setSelectedDate] = useState(null)
   const [fileList, setFileList] = useState([])
 
   useEffect(() => {
@@ -39,8 +40,15 @@ function ResponsePage() {
     }
   }
 
+  const isAgendarReunion = data?.comentario_tipo === 'agendar_reunion'
+
   const handleSubmit = async () => {
-    if (!contenido.trim()) {
+    if (isAgendarReunion) {
+      if (!selectedDate) {
+        message.error('Por favor seleccione una fecha y hora')
+        return
+      }
+    } else if (!contenido.trim()) {
       message.error('Por favor escriba su respuesta')
       return
     }
@@ -48,7 +56,10 @@ function ResponsePage() {
     setSubmitting(true)
     try {
       const formData = new FormData()
-      formData.append('contenido', contenido.trim())
+      const responseText = isAgendarReunion
+        ? selectedDate.format('YYYY-MM-DD HH:mm')
+        : contenido.trim()
+      formData.append('contenido', responseText)
 
       fileList.forEach(file => {
         if (file.originFileObj) {
@@ -116,7 +127,7 @@ function ResponsePage() {
             subTitle="Su respuesta ha sido registrada exitosamente. El equipo técnico la revisará pronto."
             extra={
               <Button type="primary" onClick={() => window.location.href = `/consulta/${data.entidad_codigo}`}>
-                Ver estado de mi {data.entidad_tipo === 'ticket' ? 'ticket' : 'solicitud'}
+                Ver estado de mi {data.entidad_tipo === 'ticket' ? 'ticket' : data.entidad_tipo === 'proyecto' ? 'proyecto' : 'solicitud'}
               </Button>
             }
           />
@@ -129,7 +140,7 @@ function ResponsePage() {
     <div style={{ maxWidth: 700, margin: '40px auto', padding: '0 16px' }}>
       <Card>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <Title level={3}>Responder Comunicación</Title>
+          <Title level={3}>{isAgendarReunion ? 'Proponer Fecha de Reunión' : 'Responder Comunicación'}</Title>
           <Space>
             <Tag color="blue">{data.entidad_codigo}</Tag>
             <Text type="secondary">{data.entidad_titulo}</Text>
@@ -154,16 +165,36 @@ function ResponsePage() {
         />
 
         <div style={{ marginBottom: 16 }}>
-          <Text strong>Su respuesta:</Text>
-          <TextArea
-            value={contenido}
-            onChange={(e) => setContenido(e.target.value)}
-            placeholder="Escriba su respuesta aquí..."
-            rows={6}
-            style={{ marginTop: 8 }}
-            maxLength={2000}
-            showCount
-          />
+          {isAgendarReunion ? (
+            <>
+              <Text strong><CalendarOutlined /> Proponga una fecha y hora para la reunión:</Text>
+              <div style={{ marginTop: 8 }}>
+                <DatePicker
+                  showTime={{ format: 'HH:mm' }}
+                  format="DD/MM/YYYY HH:mm"
+                  value={selectedDate}
+                  onChange={setSelectedDate}
+                  placeholder="Seleccione fecha y hora"
+                  size="large"
+                  style={{ width: '100%' }}
+                  disabledDate={(current) => current && current < dayjs().startOf('day')}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <Text strong>Su respuesta:</Text>
+              <TextArea
+                value={contenido}
+                onChange={(e) => setContenido(e.target.value)}
+                placeholder="Escriba su respuesta aquí..."
+                rows={6}
+                style={{ marginTop: 8 }}
+                maxLength={2000}
+                showCount
+              />
+            </>
+          )}
         </div>
 
         <div style={{ marginBottom: 24 }}>
@@ -196,7 +227,7 @@ function ResponsePage() {
             loading={submitting}
             size="large"
           >
-            Enviar Respuesta
+            {isAgendarReunion ? 'Proponer Fecha' : 'Enviar Respuesta'}
           </Button>
         </div>
       </Card>

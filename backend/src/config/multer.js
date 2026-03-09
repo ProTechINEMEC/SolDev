@@ -72,6 +72,22 @@ const uploadSingle = multer({
   }
 });
 
+// PDF-only upload for article attachments (25MB, max 5 files)
+const uploadArticlePDF = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo archivos PDF permitidos'), false);
+    }
+  },
+  limits: {
+    fileSize: 25 * 1024 * 1024, // 25MB per file
+    files: 5
+  }
+});
+
 // Export different upload configurations
 module.exports = {
   // For multiple file uploads (form attachments)
@@ -86,6 +102,9 @@ module.exports = {
     { name: 'referencias', maxCount: 5 },
     { name: 'adjuntos', maxCount: 10 }
   ]),
+
+  // For article PDF attachments (25MB, PDF only, max 5)
+  uploadArticlePDFs: uploadArticlePDF.array('pdfs', 5),
 
   // Base multer instance for custom configurations
   multer,

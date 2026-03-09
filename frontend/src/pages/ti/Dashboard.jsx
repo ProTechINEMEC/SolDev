@@ -49,10 +49,10 @@ function TIDashboard() {
           <Card><Statistic title="En Proceso" value={data?.tickets?.en_proceso || 0} prefix={<ToolOutlined style={{ color: '#D52B1E' }} />} /></Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card><Statistic title="Resueltos Hoy" value={data?.tickets?.resueltos || 0} prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />} /></Card>
+          <Card><Statistic title="Resueltos Hoy" value={data?.tickets?.resueltos_hoy || 0} prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />} /></Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card><Statistic title="Escalados" value={data?.tickets?.escalados || 0} prefix={<ExclamationCircleOutlined style={{ color: '#f5222d' }} />} /></Card>
+          <Card><Statistic title="Tiempo Promedio Respuesta" value={data?.tickets?.tiempo_promedio_horas != null ? `${parseFloat(data.tickets.tiempo_promedio_horas).toFixed(1)}h` : '--'} prefix={<ClockCircleOutlined style={{ color: '#1890ff' }} />} /></Card>
         </Col>
       </Row>
       <Card title="Tickets Sin Asignar" extra={<Link to="/ti/tickets">Ver todos</Link>}>

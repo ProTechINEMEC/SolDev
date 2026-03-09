@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react'
 import {
   Card, Table, Tag, Button, Space, Typography, Input, Select, Modal,
-  Form, message, Popconfirm, Switch, Row, Col, Alert, List
+  Form, message, Popconfirm, Switch, Row, Col, Alert, List, Checkbox
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined,
   UserOutlined, LockOutlined, ExperimentOutlined
 } from '@ant-design/icons'
-import { usuariosApi } from '../../services/api'
+import { usuariosApi, opcionesApi } from '../../services/api'
 import { useAuthStore } from '../../stores/authStore'
 import dayjs from 'dayjs'
 
@@ -40,7 +40,11 @@ function NTUsuarios() {
   const [form] = Form.useForm()
   const [testUsersStatus, setTestUsersStatus] = useState(null)
   const [testUsersLoading, setTestUsersLoading] = useState(false)
+  const [contractOptions, setContractOptions] = useState([])
   const { user: currentUser } = useAuthStore()
+
+  // Watch form role field to show/hide contract selector
+  const formRole = Form.useWatch('rol', form)
 
   useEffect(() => {
     loadUsuarios()
@@ -49,6 +53,7 @@ function NTUsuarios() {
   useEffect(() => {
     if (currentUser?.rol === 'admin') {
       loadTestUsersStatus()
+      loadContractOptions()
     }
   }, [currentUser])
 
@@ -79,6 +84,16 @@ function NTUsuarios() {
     }
   }
 
+  const loadContractOptions = async () => {
+    try {
+      const response = await opcionesApi.getByCategoria('operacion_contrato')
+      const opciones = response.data.opciones || response.data || []
+      setContractOptions(opciones.filter(o => o.activo !== false).map(o => ({ label: o.valor, value: o.valor })))
+    } catch (error) {
+      console.error('Error loading contract options:', error)
+    }
+  }
+
   const handleToggleTestUsers = async (activo) => {
     setTestUsersLoading(true)
     try {
@@ -106,7 +121,8 @@ function NTUsuarios() {
       nombre: user.nombre,
       email: user.email,
       rol: user.rol,
-      activo: user.activo
+      activo: user.activo,
+      contratos: user.contratos || []
     })
     setModalVisible(true)
   }
@@ -114,6 +130,11 @@ function NTUsuarios() {
   const handleSave = async () => {
     try {
       const values = await form.validateFields()
+
+      // Strip contratos for non-TI roles
+      if (!['ti', 'coordinador_ti'].includes(values.rol)) {
+        delete values.contratos
+      }
 
       if (editingUser) {
         // Don't send password if not changed
@@ -407,6 +428,28 @@ function NTUsuarios() {
               </Select.Option>
             </Select>
           </Form.Item>
+
+          {(formRole === 'ti' || formRole === 'coordinador_ti') && contractOptions.length > 0 && (
+            <Form.Item name="contratos" label="Contratos Asignados">
+              <div>
+                <Button
+                  size="small"
+                  style={{ marginBottom: 8 }}
+                  onClick={() => form.setFieldsValue({ contratos: contractOptions.map(o => o.value) })}
+                >
+                  Seleccionar Todos
+                </Button>
+                <Button
+                  size="small"
+                  style={{ marginBottom: 8, marginLeft: 8 }}
+                  onClick={() => form.setFieldsValue({ contratos: [] })}
+                >
+                  Limpiar
+                </Button>
+                <Checkbox.Group options={contractOptions} style={{ display: 'flex', flexDirection: 'column', gap: 4 }} />
+              </div>
+            </Form.Item>
+          )}
 
           {editingUser && (
             <Form.Item name="activo" label="Estado" valuePropName="checked">

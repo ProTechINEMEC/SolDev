@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { Card, Typography, Tag, Spin, Button, Divider, Row, Col } from 'antd'
-import { ArrowLeftOutlined, EyeOutlined, CalendarOutlined, UserOutlined } from '@ant-design/icons'
-import { conocimientoApi } from '../../services/api'
-import { marked } from 'marked'
+import { Card, Typography, Tag, Spin, Button, Divider, Row, Col, List } from 'antd'
+import { ArrowLeftOutlined, EyeOutlined, CalendarOutlined, UserOutlined, FilePdfOutlined, DownloadOutlined } from '@ant-design/icons'
+import { conocimientoApi, archivosApi } from '../../services/api'
 import dayjs from 'dayjs'
 
 const { Title, Paragraph, Text } = Typography
@@ -12,6 +11,7 @@ function ArticleView() {
   const { slug } = useParams()
   const [article, setArticle] = useState(null)
   const [related, setRelated] = useState([])
+  const [archivos, setArchivos] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -24,11 +24,20 @@ function ArticleView() {
       const response = await conocimientoApi.getArticulo(slug)
       setArticle(response.data.articulo)
       setRelated(response.data.relacionados || [])
+      setArchivos(response.data.archivos || [])
     } catch (error) {
       console.error('Error loading article:', error)
     } finally {
       setLoading(false)
     }
+  }
+
+  const formatFileSize = (bytes) => {
+    if (!bytes) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
   }
 
   if (loading) {
@@ -78,12 +87,44 @@ function ArticleView() {
         <Divider />
 
         <div
-          className="markdown-content"
+          className="article-content"
           style={{ lineHeight: 1.8 }}
-          dangerouslySetInnerHTML={{ __html: marked.parse(article.contenido || '') }}
+          dangerouslySetInnerHTML={{ __html: article.contenido || '' }}
         />
       </Card>
 
+      {/* PDF Attachments */}
+      {archivos.length > 0 && (
+        <Card title={<><FilePdfOutlined /> Archivos Adjuntos</>} style={{ marginTop: 24 }}>
+          <List
+            dataSource={archivos}
+            renderItem={(file) => (
+              <List.Item
+                actions={[
+                  <Button
+                    key="download"
+                    type="primary"
+                    size="small"
+                    icon={<DownloadOutlined />}
+                    href={archivosApi.getDownloadUrl(file.id)}
+                    target="_blank"
+                  >
+                    Descargar
+                  </Button>
+                ]}
+              >
+                <List.Item.Meta
+                  avatar={<FilePdfOutlined style={{ fontSize: 24, color: '#D52B1E' }} />}
+                  title={file.nombre_original}
+                  description={formatFileSize(file.tamano)}
+                />
+              </List.Item>
+            )}
+          />
+        </Card>
+      )}
+
+      {/* Related Articles */}
       {related.length > 0 && (
         <Card title="Artículos Relacionados" style={{ marginTop: 24 }}>
           <Row gutter={16}>
@@ -102,6 +143,27 @@ function ArticleView() {
           </Row>
         </Card>
       )}
+
+      <style>{`
+        .article-content h1 { font-size: 1.8em; margin: 1em 0 0.5em; color: #1a1a1a; }
+        .article-content h2 { font-size: 1.5em; margin: 1em 0 0.5em; color: #1a1a1a; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
+        .article-content h3 { font-size: 1.25em; margin: 1em 0 0.5em; color: #333; }
+        .article-content h4 { font-size: 1.1em; margin: 0.8em 0 0.4em; color: #333; }
+        .article-content p { margin: 0.8em 0; }
+        .article-content ul, .article-content ol { padding-left: 2em; margin: 0.5em 0; }
+        .article-content li { margin: 0.3em 0; }
+        .article-content table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+        .article-content th, .article-content td { border: 1px solid #d9d9d9; padding: 8px 12px; text-align: left; }
+        .article-content th { background: #fafafa; font-weight: 600; }
+        .article-content tr:nth-child(even) { background: #fafafa; }
+        .article-content blockquote { border-left: 4px solid #D52B1E; padding: 8px 16px; margin: 1em 0; background: #fff7f6; color: #333; }
+        .article-content pre { background: #f6f8fa; padding: 12px; border-radius: 6px; overflow-x: auto; }
+        .article-content code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+        .article-content pre code { background: none; padding: 0; }
+        .article-content img { max-width: 100%; height: auto; border-radius: 4px; }
+        .article-content a { color: #1677ff; }
+        .article-content a:hover { color: #4096ff; }
+      `}</style>
     </div>
   )
 }

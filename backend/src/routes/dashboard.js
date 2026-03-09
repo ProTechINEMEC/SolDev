@@ -22,7 +22,7 @@ router.get('/nt', authenticate, authorize('nuevas_tecnologias'), async (req, res
       FROM solicitudes
     `);
 
-    // Projects stats
+    // Projects stats (NT: only projects where user is responsable or team member)
     const proyectosStats = await pool.query(`
       SELECT
         COUNT(*) FILTER (WHERE estado = 'planificacion') as planificacion,
@@ -30,13 +30,39 @@ router.get('/nt', authenticate, authorize('nuevas_tecnologias'), async (req, res
         COUNT(*) FILTER (WHERE estado = 'pausado') as pausados,
         COUNT(*) FILTER (WHERE estado = 'completado') as completados,
         COUNT(*) as total
-      FROM proyectos
-    `);
+      FROM proyectos p
+      WHERE (p.responsable_id = $1 OR EXISTS (
+        SELECT 1 FROM proyecto_miembros pm
+        WHERE pm.proyecto_id = p.id AND pm.usuario_id = $1
+      ))
+    `, [req.user.id]);
 
     // Escalated tickets
     const ticketsEscalados = await pool.query(`
       SELECT COUNT(*) as total FROM tickets WHERE estado = 'escalado_nt'
     `);
+
+    // Tasks due today: project tasks assigned to user + implementation tasks on user's projects
+    const tareasHoy = await pool.query(`
+      SELECT (
+        SELECT COUNT(*) FROM proyecto_tareas pt
+        JOIN proyectos p ON pt.proyecto_id = p.id
+        WHERE pt.asignado_id = $1
+          AND CURRENT_DATE BETWEEN pt.fecha_inicio AND pt.fecha_fin
+          AND pt.completada = false
+          AND p.estado IN ('planificacion', 'en_desarrollo')
+      ) + (
+        SELECT COUNT(*) FROM implementacion_tareas it
+        JOIN proyectos p ON it.proyecto_id = p.id
+        WHERE CURRENT_DATE BETWEEN it.fecha_inicio AND it.fecha_fin
+          AND it.completada = false
+          AND p.estado = 'en_implementacion'
+          AND (p.responsable_id = $1 OR EXISTS (
+            SELECT 1 FROM proyecto_miembros pm
+            WHERE pm.proyecto_id = p.id AND pm.usuario_id = $1
+          ))
+      ) as total
+    `, [req.user.id]);
 
     // Recent solicitudes
     const solicitudesRecientes = await pool.query(`
@@ -56,7 +82,7 @@ router.get('/nt', authenticate, authorize('nuevas_tecnologias'), async (req, res
       LIMIT 10
     `);
 
-    // Active projects
+    // Active projects (NT: only where user is team member)
     const proyectosActivos = await pool.query(`
       SELECT p.id, p.codigo, p.titulo, p.estado, p.creado_en,
         u.nombre as responsable_nombre,
@@ -65,9 +91,13 @@ router.get('/nt', authenticate, authorize('nuevas_tecnologias'), async (req, res
       FROM proyectos p
       LEFT JOIN usuarios u ON p.responsable_id = u.id
       WHERE p.estado IN ('planificacion', 'en_desarrollo')
+        AND (p.responsable_id = $1 OR EXISTS (
+          SELECT 1 FROM proyecto_miembros pm
+          WHERE pm.proyecto_id = p.id AND pm.usuario_id = $1
+        ))
       ORDER BY p.actualizado_en DESC
       LIMIT 5
-    `);
+    `, [req.user.id]);
 
     // Solicitudes by type (last 30 days)
     const solicitudesPorTipo = await pool.query(`
@@ -76,6 +106,21 @@ router.get('/nt', authenticate, authorize('nuevas_tecnologias'), async (req, res
       WHERE creado_en >= NOW() - INTERVAL '30 days'
       GROUP BY tipo
     `);
+
+    // Implementation projects (NT: only user's projects)
+    const proyectosImplementacion = await pool.query(`
+      SELECT p.id, p.codigo, p.titulo,
+        (SELECT COUNT(*) FROM implementacion_tareas WHERE proyecto_id = p.id) as impl_total,
+        (SELECT COUNT(*) FROM implementacion_tareas WHERE proyecto_id = p.id AND completada = true) as impl_completadas
+      FROM proyectos p
+      WHERE p.estado = 'en_implementacion'
+        AND (p.responsable_id = $1 OR EXISTS (
+          SELECT 1 FROM proyecto_miembros pm
+          WHERE pm.proyecto_id = p.id AND pm.usuario_id = $1
+        ))
+      ORDER BY p.actualizado_en DESC
+      LIMIT 5
+    `, [req.user.id]);
 
     // Notifications
     const notificaciones = await pool.query(`
@@ -88,8 +133,10 @@ router.get('/nt', authenticate, authorize('nuevas_tecnologias'), async (req, res
       solicitudes: solicitudesStats.rows[0],
       proyectos: proyectosStats.rows[0],
       ticketsEscalados: parseInt(ticketsEscalados.rows[0].total, 10),
+      tareasHoy: parseInt(tareasHoy.rows[0].total, 10),
       solicitudesRecientes: solicitudesRecientes.rows,
       proyectosActivos: proyectosActivos.rows,
+      proyectosImplementacion: proyectosImplementacion.rows,
       solicitudesPorTipo: solicitudesPorTipo.rows,
       notificaciones: notificaciones.rows
     });
@@ -101,22 +148,44 @@ router.get('/nt', authenticate, authorize('nuevas_tecnologias'), async (req, res
 // GET /api/dashboard/ti - TI Dashboard (accessible by TI workers and TI Coordinator)
 router.get('/ti', authenticate, authorize('ti', 'coordinador_ti'), async (req, res, next) => {
   try {
-    // Tickets stats
-    const ticketsStats = await pool.query(`
+    // Contract filter for TI users (coordinador_ti sees all)
+    const isTI = req.user.rol === 'ti';
+    const contratos = isTI ? (req.user.contratos || []) : [];
+    const hasContratos = isTI && contratos.length > 0;
+    const contratoFilter = isTI
+      ? (hasContratos ? ` AND datos_solicitante->>'operacion_contrato' = ANY($1)` : ` AND false`)
+      : '';
+    const contratoParams = hasContratos ? [contratos] : [];
+
+    // Abiertos (contract-filtered for TI, global for coordinator)
+    const abiertosResult = await pool.query(`
+      SELECT COUNT(*) as abiertos FROM tickets WHERE estado = 'abierto'${contratoFilter}
+    `, contratoParams);
+
+    // Personal stats for TI user, department-wide for coordinator
+    const personalFilter = isTI ? ' AND asignado_id = $1' : '';
+    const personalParams = isTI ? [req.user.id] : [];
+    const otherStats = await pool.query(`
       SELECT
-        COUNT(*) FILTER (WHERE estado = 'abierto') as abiertos,
         COUNT(*) FILTER (WHERE estado = 'en_proceso') as en_proceso,
-        COUNT(*) FILTER (WHERE estado = 'resuelto') as resueltos,
-        COUNT(*) FILTER (WHERE estado = 'cerrado') as cerrados,
-        COUNT(*) FILTER (WHERE estado = 'escalado_nt') as escalados,
-        COUNT(*) FILTER (WHERE creado_en >= NOW() - INTERVAL '24 hours') as ultimas_24h,
-        COUNT(*) FILTER (WHERE creado_en >= NOW() - INTERVAL '7 days') as ultima_semana,
+        COUNT(*) FILTER (WHERE estado IN ('resuelto', 'solucionado', 'cerrado')
+          AND DATE(fecha_resolucion) = CURRENT_DATE) as resueltos_hoy,
         AVG(EXTRACT(EPOCH FROM (fecha_resolucion - creado_en))/3600)
           FILTER (WHERE fecha_resolucion IS NOT NULL) as tiempo_promedio_horas
       FROM tickets
-    `);
+      WHERE 1=1${personalFilter}
+    `, personalParams);
 
-    // My tickets
+    const ticketsStats = {
+      abiertos: parseInt(abiertosResult.rows[0].abiertos, 10),
+      en_proceso: parseInt(otherStats.rows[0].en_proceso, 10),
+      resueltos_hoy: parseInt(otherStats.rows[0].resueltos_hoy, 10),
+      tiempo_promedio_horas: otherStats.rows[0].tiempo_promedio_horas
+        ? parseFloat(otherStats.rows[0].tiempo_promedio_horas)
+        : null
+    };
+
+    // My tickets (already filtered by asignado_id — keep as-is)
     const misTickets = await pool.query(`
       SELECT * FROM tickets
       WHERE asignado_id = $1 AND estado IN ('en_proceso', 'abierto')
@@ -126,23 +195,26 @@ router.get('/ti', authenticate, authorize('ti', 'coordinador_ti'), async (req, r
       LIMIT 10
     `, [req.user.id]);
 
-    // Unassigned tickets
+    // Unassigned tickets (TI: only from their contracts)
+    const unassignedFilter = isTI
+      ? (hasContratos ? ` AND datos_solicitante->>'operacion_contrato' = ANY($1)` : ` AND false`)
+      : '';
     const ticketsSinAsignar = await pool.query(`
       SELECT * FROM tickets
-      WHERE asignado_id IS NULL AND estado = 'abierto'
+      WHERE asignado_id IS NULL AND estado = 'abierto'${unassignedFilter}
       ORDER BY
         CASE prioridad WHEN 'critica' THEN 1 WHEN 'alta' THEN 2 WHEN 'media' THEN 3 ELSE 4 END,
         creado_en
       LIMIT 10
-    `);
+    `, contratoParams);
 
-    // Tickets by category
+    // Tickets by category (TI: only from their contracts)
     const ticketsPorCategoria = await pool.query(`
       SELECT categoria, COUNT(*) as cantidad
       FROM tickets
-      WHERE creado_en >= NOW() - INTERVAL '30 days'
+      WHERE creado_en >= NOW() - INTERVAL '30 days'${contratoFilter}
       GROUP BY categoria
-    `);
+    `, contratoParams);
 
     // Notifications
     const notificaciones = await pool.query(`
@@ -152,7 +224,7 @@ router.get('/ti', authenticate, authorize('ti', 'coordinador_ti'), async (req, r
     `, [req.user.id]);
 
     res.json({
-      tickets: ticketsStats.rows[0],
+      tickets: ticketsStats,
       misTickets: misTickets.rows,
       ticketsSinAsignar: ticketsSinAsignar.rows,
       ticketsPorCategoria: ticketsPorCategoria.rows,
@@ -182,8 +254,7 @@ router.get('/gerencia', authenticate, authorize('gerencia'), async (req, res, ne
       SELECT
         (SELECT COUNT(*) FROM solicitudes WHERE estado = 'pendiente_aprobacion_gerencia') as pendientes_aprobacion,
         (SELECT COUNT(*) FROM proyectos WHERE estado IN ('planificacion', 'en_desarrollo')) as proyectos_activos,
-        (SELECT COUNT(*) FROM proyectos WHERE estado = 'completado' AND
-          EXTRACT(YEAR FROM actualizado_en) = EXTRACT(YEAR FROM NOW())) as proyectos_completados_ano,
+        (SELECT COUNT(*) FROM solicitudes WHERE estado = 'agendado') as agendados,
         (SELECT COUNT(*) FROM tickets WHERE estado IN ('abierto', 'en_proceso')) as tickets_abiertos
     `);
 
@@ -218,6 +289,17 @@ router.get('/gerencia', authenticate, authorize('gerencia'), async (req, res, ne
       ORDER BY fecha_fin DESC LIMIT 1
     `);
 
+    // Implementation projects (gerencia sees all)
+    const proyectosImplementacion = await pool.query(`
+      SELECT p.id, p.codigo, p.titulo,
+        (SELECT COUNT(*) FROM implementacion_tareas WHERE proyecto_id = p.id) as impl_total,
+        (SELECT COUNT(*) FROM implementacion_tareas WHERE proyecto_id = p.id AND completada = true) as impl_completadas
+      FROM proyectos p
+      WHERE p.estado = 'en_implementacion'
+      ORDER BY p.actualizado_en DESC
+      LIMIT 5
+    `);
+
     // Notifications
     const notificaciones = await pool.query(`
       SELECT * FROM notificaciones
@@ -230,6 +312,7 @@ router.get('/gerencia', authenticate, authorize('gerencia'), async (req, res, ne
       stats: globalStats.rows[0],
       tendenciaMensual: tendenciaMensual.rows,
       proyectosResumen: proyectosResumen.rows,
+      proyectosImplementacion: proyectosImplementacion.rows,
       ultimoReporte: ultimoReporte.rows[0] || null,
       notificaciones: notificaciones.rows
     });
@@ -292,6 +375,17 @@ router.get('/coordinador-nt', authenticate, authorize('coordinador_nt'), async (
       LIMIT 20
     `);
 
+    // Implementation projects (all, coordinator sees everything)
+    const proyectosImplementacion = await pool.query(`
+      SELECT p.id, p.codigo, p.titulo,
+        (SELECT COUNT(*) FROM implementacion_tareas WHERE proyecto_id = p.id) as impl_total,
+        (SELECT COUNT(*) FROM implementacion_tareas WHERE proyecto_id = p.id AND completada = true) as impl_completadas
+      FROM proyectos p
+      WHERE p.estado = 'en_implementacion'
+      ORDER BY p.actualizado_en DESC
+      LIMIT 5
+    `);
+
     // Notifications
     const notificaciones = await pool.query(`
       SELECT * FROM notificaciones
@@ -304,6 +398,7 @@ router.get('/coordinador-nt', authenticate, authorize('coordinador_nt'), async (
       stats: stats.rows[0],
       misDecisiones: misDecisiones.rows,
       proyectosActivos: proyectosActivos.rows,
+      proyectosImplementacion: proyectosImplementacion.rows,
       notificaciones: notificaciones.rows
     });
   } catch (error) {

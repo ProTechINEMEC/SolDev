@@ -22,6 +22,7 @@ const { Text, Paragraph } = Typography
 const NEW_PROJECT_COLOR = '#D52B1E'  // INEMEC primary red
 const NEW_TASK_COLOR = '#E85A50'     // Lighter INEMEC red for tasks
 const EXISTING_PROJECT_COLOR = '#8c8c8c'  // Gray for existing projects
+const CURRENT_PROJECT_COLOR = '#fa8c16'   // Orange for current project (reschedule mode)
 
 const prioridadColors = {
   critica: '#ff4d4f',
@@ -30,7 +31,7 @@ const prioridadColors = {
   baja: '#52c41a'
 }
 
-function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedule }) {
+function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedule, mode = 'schedule', proyecto, onConfirmReschedule }) {
   const calendarRef = useRef(null)
   const [initialLoading, setInitialLoading] = useState(true)
   const [previewing, setPreviewing] = useState(false)
@@ -42,6 +43,9 @@ function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedul
   const [festivos, setFestivos] = useState([])
   const [selectedDate, setSelectedDate] = useState(null)
   const [preview, setPreview] = useState(null)
+
+  const isReschedule = mode === 'reschedule'
+  const entity = isReschedule ? proyecto : solicitud
 
   // Calendar view range - use ref to avoid re-renders
   const dateRangeRef = useRef({
@@ -61,7 +65,7 @@ function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedul
   }, [visible])
 
   useEffect(() => {
-    if (selectedDate && solicitud) {
+    if (selectedDate && entity) {
       loadPreview()
     } else {
       setPreview(null)
@@ -109,17 +113,25 @@ function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedul
     }
     dateRangeRef.current = newRange
     loadData(newRange)
-  }, [solicitud?.id])
+  }, [isReschedule ? proyecto?.id : solicitud?.id])
 
   const loadPreview = async () => {
-    if (!selectedDate || !solicitud) return
+    if (!selectedDate || !entity) return
 
     setPreviewing(true)
     try {
-      const res = await calendarioApi.preview({
-        solicitud_id: solicitud.id,
-        fecha_inicio: selectedDate
-      })
+      let res
+      if (isReschedule) {
+        res = await calendarioApi.previewReprogramacion({
+          proyecto_id: proyecto.id,
+          fecha_inicio: selectedDate
+        })
+      } else {
+        res = await calendarioApi.preview({
+          solicitud_id: solicitud.id,
+          fecha_inicio: selectedDate
+        })
+      }
       setPreview(res.data)
     } catch (error) {
       console.error('Error loading preview:', error)
@@ -161,6 +173,15 @@ function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedul
   const handleConfirmSchedule = async () => {
     if (!preview || !selectedDate) return
 
+    if (isReschedule) {
+      // In reschedule mode, delegate to parent via callback
+      onConfirmReschedule && onConfirmReschedule({
+        fecha_inicio: preview.proyecto.fecha_inicio,
+        fecha_fin: preview.proyecto.fecha_fin
+      })
+      return
+    }
+
     setScheduling(true)
     try {
       await solicitudesApi.agendar(solicitud.codigo, {
@@ -187,21 +208,24 @@ function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedul
   const buildCalendarEvents = () => {
     const events = []
 
-    // Add existing projects as GRAY bars (no tasks shown)
-    proyectos.forEach(proyecto => {
+    // Add existing projects
+    proyectos.forEach(p => {
+      // In reschedule mode, show current project in orange (distinct from gray)
+      const isCurrentProject = isReschedule && p.id === proyecto?.id
+      const bgColor = isCurrentProject ? CURRENT_PROJECT_COLOR : EXISTING_PROJECT_COLOR
+
       events.push({
-        id: `project-${proyecto.id}`,
-        title: `${proyecto.codigo}: ${proyecto.titulo}`,
-        start: proyecto.fecha_inicio_programada,
-        end: dayjs(proyecto.fecha_fin_programada).add(1, 'day').format('YYYY-MM-DD'),
+        id: `project-${p.id}`,
+        title: `${p.codigo}: ${p.titulo}`,
+        start: p.fecha_inicio_programada,
+        end: dayjs(p.fecha_fin_programada).add(1, 'day').format('YYYY-MM-DD'),
         allDay: true,
-        backgroundColor: EXISTING_PROJECT_COLOR,
-        borderColor: EXISTING_PROJECT_COLOR,
+        backgroundColor: bgColor,
+        borderColor: bgColor,
         textColor: '#fff',
         display: 'block',
-        extendedProps: { type: 'project', proyecto }
+        extendedProps: { type: 'project', proyecto: p }
       })
-      // Note: We intentionally don't add task events for existing projects
     })
 
     // Add preview events if we have a preview (new project in RED)
@@ -265,12 +289,19 @@ function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedul
     return [...new Map(assigned.map(m => [m.id, m])).values()]
   }
 
+  const modalTitle = isReschedule
+    ? `Reprogramar Proyecto: ${proyecto?.codigo}`
+    : `Programar Proyecto: ${solicitud?.codigo}`
+
+  const entityTitle = isReschedule ? proyecto?.titulo : solicitud?.titulo
+  const entityPrioridad = isReschedule ? proyecto?.prioridad : solicitud?.prioridad
+
   return (
     <Modal
       title={
         <Space>
           <CalendarOutlined />
-          <span>Programar Proyecto: {solicitud?.codigo}</span>
+          <span>{modalTitle}</span>
         </Space>
       }
       open={visible}
@@ -289,7 +320,7 @@ function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedul
           {/* Calendar Column */}
           <Col xs={24} lg={16}>
             <Card size="small" title="Calendario de Proyectos" extra={
-              <Text type="secondary">Haga clic en una fecha para programar</Text>
+              <Text type="secondary">Haga clic en una fecha para {isReschedule ? 'reprogramar' : 'programar'}</Text>
             }>
               <FullCalendar
                 ref={calendarRef}
@@ -323,12 +354,18 @@ function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedul
               <div style={{ marginTop: 12, display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
                 <Space size={4}>
                   <div style={{ width: 12, height: 12, backgroundColor: NEW_PROJECT_COLOR, borderRadius: 2 }} />
-                  <Text type="secondary" style={{ fontSize: 12 }}>Nuevo Proyecto</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{isReschedule ? 'Nuevas Fechas' : 'Nuevo Proyecto'}</Text>
                 </Space>
                 <Space size={4}>
                   <div style={{ width: 12, height: 12, backgroundColor: NEW_TASK_COLOR, borderRadius: 2 }} />
-                  <Text type="secondary" style={{ fontSize: 12 }}>Tareas del Nuevo Proyecto</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Tareas Recalculadas</Text>
                 </Space>
+                {isReschedule && (
+                  <Space size={4}>
+                    <div style={{ width: 12, height: 12, backgroundColor: CURRENT_PROJECT_COLOR, borderRadius: 2 }} />
+                    <Text type="secondary" style={{ fontSize: 12 }}>Proyecto Actual</Text>
+                  </Space>
+                )}
                 <Space size={4}>
                   <div style={{ width: 12, height: 12, backgroundColor: EXISTING_PROJECT_COLOR, borderRadius: 2 }} />
                   <Text type="secondary" style={{ fontSize: 12 }}>Proyectos Existentes</Text>
@@ -345,12 +382,12 @@ function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedul
               style={{ marginBottom: 16 }}
             >
               <Paragraph>
-                <Text strong>{solicitud?.titulo}</Text>
+                <Text strong>{entityTitle}</Text>
               </Paragraph>
               <Space direction="vertical" size="small">
                 <Text type="secondary">
                   <ClockCircleOutlined /> Prioridad:{' '}
-                  <Tag color={prioridadColors[solicitud?.prioridad]}>{solicitud?.prioridad?.toUpperCase()}</Tag>
+                  <Tag color={prioridadColors[entityPrioridad]}>{entityPrioridad?.toUpperCase()}</Tag>
                 </Text>
               </Space>
             </Card>
@@ -377,7 +414,7 @@ function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedul
                       return current < dayjs().startOf('day') || day === 0 || day === 6 || isHoliday
                     }}
                   />
-                  {evaluacion?.fecha_inicio_posible && (
+                  {!isReschedule && evaluacion?.fecha_inicio_posible && (
                     <Tooltip title={`Fecha sugerida por NT: ${dayjs(evaluacion.fecha_inicio_posible).format('DD/MM/YYYY')}`}>
                       <Button
                         type="default"
@@ -391,7 +428,7 @@ function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedul
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   Solo días hábiles (lunes a viernes, sin festivos colombianos)
                 </Text>
-                {evaluacion?.fecha_inicio_posible && (
+                {!isReschedule && evaluacion?.fecha_inicio_posible && (
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     NT recomienda: <Text strong>{dayjs(evaluacion.fecha_inicio_posible).format('DD/MM/YYYY')}</Text>
                   </Text>
@@ -509,7 +546,7 @@ function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedul
                     loading={scheduling}
                     danger
                   >
-                    Confirmar y Agendar
+                    {isReschedule ? 'Confirmar Fechas' : 'Confirmar y Agendar'}
                   </Button>
                   <Button
                     block
@@ -528,7 +565,7 @@ function SchedulingCalendar({ visible, onClose, solicitud, evaluacion, onSchedul
               <Alert
                 type="info"
                 message="Seleccione una fecha"
-                description="Haga clic en una fecha del calendario o use el selector arriba para ver cómo quedaría programado el proyecto."
+                description={`Haga clic en una fecha del calendario o use el selector arriba para ver cómo quedaría ${isReschedule ? 'reprogramado' : 'programado'} el proyecto.`}
               />
             )}
           </Col>

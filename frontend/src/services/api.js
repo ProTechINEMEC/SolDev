@@ -77,30 +77,65 @@ export const solicitudesApi = {
   updateProyectoReferencia: (id, data) => api.patch(`/solicitudes/${id}/proyecto-referencia`, data),
   getProyectosPublic: () => api.get('/proyectos/public'),
   updateFormulario: (id, data) => api.patch(`/solicitudes/${id}/formulario`, data),
-  // Project workflow
-  iniciarDesarrollo: (id) => api.put(`/solicitudes/${id}/iniciar-desarrollo`),
-  pausar: (id, data) => api.put(`/solicitudes/${id}/pausar`, data),
-  reanudar: (id) => api.put(`/solicitudes/${id}/reanudar`),
-  cancelarProyecto: (id, data) => api.put(`/solicitudes/${id}/cancelar-proyecto`, data),
-  getPausas: (id) => api.get(`/solicitudes/${id}/pausas`),
-  getProgreso: (id) => api.get(`/solicitudes/${id}/progreso`),
-  updateTareaProgreso: (id, tareaId, data) => api.put(`/solicitudes/${id}/tareas/${tareaId}/progreso`, data),
-  addTareaEmergente: (id, data) => api.post(`/solicitudes/${id}/tareas-emergentes`, data),
   checkProyectoStatus: (codigo) => api.get(`/solicitudes/proyecto/consulta/${codigo}`)
 }
 
 export const proyectosApi = {
   list: (params) => api.get('/proyectos', { params }),
-  get: (id) => api.get(`/proyectos/${id}`),
-  update: (id, data) => api.put(`/proyectos/${id}`, data),
-  updateEstado: (id, data) => api.put(`/proyectos/${id}/estado`, data),
-  getTareas: (id) => api.get(`/proyectos/${id}/tareas`),
-  createTarea: (id, data) => api.post(`/proyectos/${id}/tareas`, data),
-  updateTarea: (id, tareaId, data) => api.put(`/proyectos/${id}/tareas/${tareaId}`, data),
-  deleteTarea: (id, tareaId) => api.delete(`/proyectos/${id}/tareas/${tareaId}`),
-  getMiembros: (id) => api.get(`/proyectos/${id}/miembros`),
-  addMiembro: (id, data) => api.post(`/proyectos/${id}/miembros`, data),
-  removeMiembro: (id, userId) => api.delete(`/proyectos/${id}/miembros/${userId}`)
+  get: (codigo) => api.get(`/proyectos/${codigo}`),
+  update: (codigo, data) => api.put(`/proyectos/${codigo}`, data),
+  // Lifecycle
+  iniciarDesarrollo: (codigo) => api.put(`/proyectos/${codigo}/iniciar-desarrollo`),
+  pausar: (codigo, data) => api.put(`/proyectos/${codigo}/pausar`, data),
+  reanudar: (codigo) => api.put(`/proyectos/${codigo}/reanudar`),
+  completar: (codigo) => api.put(`/proyectos/${codigo}/completar`),
+  cancelarProyecto: (codigo, data) => api.put(`/proyectos/${codigo}/cancelar-proyecto`, data),
+  // Progress & Pauses
+  getProgreso: (codigo) => api.get(`/proyectos/${codigo}/progreso`),
+  getPausas: (codigo) => api.get(`/proyectos/${codigo}/pausas`),
+  // Tasks
+  getTareas: (codigo) => api.get(`/proyectos/${codigo}/tareas`),
+  createTarea: (codigo, data) => api.post(`/proyectos/${codigo}/tareas`, data),
+  updateTarea: (codigo, tareaId, data) => api.put(`/proyectos/${codigo}/tareas/${tareaId}`, data),
+  updateTareaProgreso: (codigo, tareaId, data) => api.put(`/proyectos/${codigo}/tareas/${tareaId}/progreso`, data),
+  deleteTarea: (codigo, tareaId) => api.delete(`/proyectos/${codigo}/tareas/${tareaId}`),
+  // Members
+  getMiembros: (codigo) => api.get(`/proyectos/${codigo}/miembros`),
+  addMiembro: (codigo, data) => api.post(`/proyectos/${codigo}/miembros`, data),
+  removeMiembro: (codigo, userId) => api.delete(`/proyectos/${codigo}/miembros/${userId}`),
+  // Costs
+  getCostos: (codigo) => api.get(`/proyectos/${codigo}/costos`),
+  addCosto: (codigo, data) => api.post(`/proyectos/${codigo}/costos`, data),
+  updateCosto: (codigo, costoId, data) => api.put(`/proyectos/${codigo}/costos/${costoId}`, data),
+  deleteCosto: (codigo, costoId) => api.delete(`/proyectos/${codigo}/costos/${costoId}`),
+  getCostosResumen: (codigo) => api.get(`/proyectos/${codigo}/costos/resumen`),
+  // Emergent changes
+  getCambiosEmergentes: (codigo) => api.get(`/proyectos/${codigo}/cambios-emergentes`),
+  // Comments (with file attachments)
+  addComment: (codigo, data, files = []) => {
+    if (files.length === 0) return api.post(`/proyectos/${codigo}/comentarios`, data)
+    const formData = new FormData()
+    formData.append('contenido', data.contenido)
+    formData.append('tipo', data.tipo || 'comentario')
+    files.forEach(f => formData.append('archivos', f.originFileObj || f))
+    return api.post(`/proyectos/${codigo}/comentarios`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+  // V2 endpoints
+  cancelarGerencia: (codigo, data) => api.put(`/proyectos/${codigo}/cancelar-gerencia`, data),
+  cancelarCoordinador: (codigo, data) => api.put(`/proyectos/${codigo}/cancelar-coordinador`, data),
+  cambiarLider: (codigo, data) => api.put(`/proyectos/${codigo}/cambiar-lider`, data),
+  getHolidays: (year) => api.get(`/proyectos/holidays/${year}`),
+  // Reprogramacion
+  getReprogramacion: (codigo) => api.get(`/proyectos/${codigo}/reprogramacion`),
+  solicitarReprogramacion: (codigo, data) => api.post(`/proyectos/${codigo}/reprogramacion`, data),
+  aprobarReprogramacionCoord: (codigo, id, data) => api.put(`/proyectos/${codigo}/reprogramacion/${id}/coordinador`, data),
+  aprobarReprogramacionGerencia: (codigo, id, data) => api.put(`/proyectos/${codigo}/reprogramacion/${id}/gerencia`, data),
+  // Implementation
+  finalizar: (codigo) => api.put(`/proyectos/${codigo}/finalizar`),
+  getImplTareas: (codigo) => api.get(`/proyectos/${codigo}/implementacion-tareas`),
+  updateImplTareaProgreso: (codigo, tareaId, data) => api.put(`/proyectos/${codigo}/implementacion-tareas/${tareaId}/progreso`, data)
 }
 
 export const ticketsApi = {
@@ -181,7 +216,11 @@ export const conocimientoApi = {
   deleteArticulo: (id) => api.delete(`/conocimiento/articulos/${id}`),
   listCategorias: () => api.get('/conocimiento/categorias'),
   createCategoria: (data) => api.post('/conocimiento/categorias', data),
-  getEtiquetas: () => api.get('/conocimiento/etiquetas')
+  getEtiquetas: () => api.get('/conocimiento/etiquetas'),
+  uploadPDFs: (articleId, formData) => api.post(`/conocimiento/articulos/${articleId}/pdfs`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  deletePDF: (articleId, fileId) => api.delete(`/conocimiento/articulos/${articleId}/pdfs/${fileId}`)
 }
 
 export const dashboardApi = {
@@ -264,7 +303,8 @@ export const calendarioApi = {
   getEstadisticas: (params) => api.get('/calendario/estadisticas', { params }),
   getFestivos: (params) => api.get('/calendario/festivos', { params }),
   calcularFechas: (data) => api.post('/calendario/calcular-fechas', data),
-  preview: (data) => api.post('/calendario/preview', data)
+  preview: (data) => api.post('/calendario/preview', data),
+  previewReprogramacion: (data) => api.post('/calendario/preview-reprogramacion', data)
 }
 
 export const archivosApi = {

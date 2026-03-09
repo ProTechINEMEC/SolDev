@@ -13,14 +13,17 @@ router.get('/:token', async (req, res, next) => {
     // Find pending response
     const result = await pool.query(
       `SELECT rp.*, c.contenido as pregunta, c.creado_en as pregunta_fecha,
+              c.tipo as comentario_tipo,
               u.nombre as pregunta_autor,
               CASE
                 WHEN rp.entidad_tipo = 'ticket' THEN (SELECT codigo FROM tickets WHERE id = rp.entidad_id)
                 WHEN rp.entidad_tipo = 'solicitud' THEN (SELECT codigo FROM solicitudes WHERE id = rp.entidad_id)
+                WHEN rp.entidad_tipo = 'proyecto' THEN (SELECT codigo FROM proyectos WHERE id = rp.entidad_id)
               END as entidad_codigo,
               CASE
                 WHEN rp.entidad_tipo = 'ticket' THEN (SELECT titulo FROM tickets WHERE id = rp.entidad_id)
                 WHEN rp.entidad_tipo = 'solicitud' THEN (SELECT titulo FROM solicitudes WHERE id = rp.entidad_id)
+                WHEN rp.entidad_tipo = 'proyecto' THEN (SELECT titulo FROM proyectos WHERE id = rp.entidad_id)
               END as entidad_titulo
        FROM respuestas_pendientes rp
        JOIN comentarios c ON rp.comentario_id = c.id
@@ -52,6 +55,7 @@ router.get('/:token', async (req, res, next) => {
       pregunta: respuesta.pregunta,
       pregunta_fecha: respuesta.pregunta_fecha,
       pregunta_autor: respuesta.pregunta_autor,
+      comentario_tipo: respuesta.comentario_tipo,
       expira_en: respuesta.expira_en
     });
   } catch (error) {
@@ -71,14 +75,16 @@ router.post('/:token', uploadMultiple, async (req, res, next) => {
 
     // Find and validate pending response
     const result = await pool.query(
-      `SELECT rp.*,
+      `SELECT rp.*, c.tipo as comentario_tipo,
               CASE
                 WHEN rp.entidad_tipo = 'ticket' THEN (SELECT codigo FROM tickets WHERE id = rp.entidad_id)
                 WHEN rp.entidad_tipo = 'solicitud' THEN (SELECT codigo FROM solicitudes WHERE id = rp.entidad_id)
+                WHEN rp.entidad_tipo = 'proyecto' THEN (SELECT codigo FROM proyectos WHERE id = rp.entidad_id)
               END as entidad_codigo,
               u.nombre as pregunta_autor,
               u.email as pregunta_autor_email
        FROM respuestas_pendientes rp
+       JOIN comentarios c ON rp.comentario_id = c.id
        LEFT JOIN usuarios u ON rp.usuario_pregunta_id = u.id
        WHERE rp.token = $1`,
       [token]
@@ -100,7 +106,15 @@ router.post('/:token', uploadMultiple, async (req, res, next) => {
       throw new AppError('Este enlace ya ha sido utilizado', 410);
     }
 
-    // Get solicitante name from ticket/solicitud
+    // For agendar_reunion, validate the response contains a valid datetime
+    if (respuestaPendiente.comentario_tipo === 'agendar_reunion') {
+      const parsed = new Date(contenido.trim());
+      if (isNaN(parsed.getTime())) {
+        throw new AppError('La respuesta debe contener una fecha y hora válida', 400);
+      }
+    }
+
+    // Get solicitante name from ticket/solicitud/proyecto
     let solicitanteNombre = 'Solicitante';
     if (respuestaPendiente.entidad_tipo === 'ticket') {
       const ticketResult = await pool.query(
@@ -109,6 +123,17 @@ router.post('/:token', uploadMultiple, async (req, res, next) => {
       );
       if (ticketResult.rows.length > 0) {
         const datos = ticketResult.rows[0].datos_solicitante;
+        solicitanteNombre = datos?.nombre_completo || datos?.nombre || 'Solicitante';
+      }
+    } else if (respuestaPendiente.entidad_tipo === 'proyecto') {
+      const proyectoResult = await pool.query(
+        `SELECT s.datos_solicitante FROM proyectos p
+         JOIN solicitudes s ON p.solicitud_id = s.id
+         WHERE p.id = $1`,
+        [respuestaPendiente.entidad_id]
+      );
+      if (proyectoResult.rows.length > 0) {
+        const datos = proyectoResult.rows[0].datos_solicitante;
         solicitanteNombre = datos?.nombre_completo || datos?.nombre || 'Solicitante';
       }
     } else {

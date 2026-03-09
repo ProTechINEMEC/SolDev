@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Row, Col, Card, Statistic, Table, Tag, Typography, Spin, List, Badge } from 'antd'
+import { Row, Col, Card, Statistic, Table, Tag, Typography, Spin, List, Badge, Progress } from 'antd'
 import {
   FileTextOutlined, ProjectOutlined, ToolOutlined, ClockCircleOutlined,
   CheckCircleOutlined, ExclamationCircleOutlined
@@ -112,8 +112,8 @@ function NTDashboard() {
         <Col xs={12} sm={8} lg={4}>
           <Card>
             <Statistic
-              title="Nuevas (7 días)"
-              value={data?.solicitudes?.nuevas_semana || 0}
+              title="Tareas para Hoy"
+              value={data?.tareasHoy || 0}
               prefix={<FileTextOutlined style={{ color: '#722ed1' }} />}
             />
           </Card>
@@ -170,6 +170,37 @@ function NTDashboard() {
             />
           </Card>
         </Col>
+
+        {/* Implementation Projects */}
+        {(data?.proyectosImplementacion?.length > 0) && (
+          <Col xs={24}>
+            <Card
+              title="Proyectos en Implementación"
+              extra={<Link to="/nt/implementacion">Ver todos</Link>}
+            >
+              <List
+                dataSource={data.proyectosImplementacion}
+                renderItem={(item) => {
+                  const total = parseInt(item.impl_total, 10) || 0
+                  const done = parseInt(item.impl_completadas, 10) || 0
+                  const pct = total > 0 ? Math.round((done / total) * 100) : 0
+                  return (
+                    <List.Item>
+                      <List.Item.Meta
+                        title={<Link to={`/nt/implementacion/${item.codigo}`}>{item.codigo}</Link>}
+                        description={item.titulo}
+                      />
+                      <div style={{ minWidth: 180, textAlign: 'right' }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>{done}/{total} tareas</Text>
+                        <Progress percent={pct} size="small" strokeColor="#D52B1E" />
+                      </div>
+                    </List.Item>
+                  )
+                }}
+              />
+            </Card>
+          </Col>
+        )}
 
         {/* Notifications */}
         <Col xs={24}>

@@ -29,7 +29,7 @@ const authenticate = async (req, res, next) => {
 
     // Get user info
     const userResult = await pool.query(
-      'SELECT id, email, nombre, rol, activo FROM usuarios WHERE id = $1',
+      'SELECT id, email, nombre, rol, activo, contratos FROM usuarios WHERE id = $1',
       [decoded.userId]
     );
 
@@ -38,7 +38,13 @@ const authenticate = async (req, res, next) => {
     }
 
     // Attach user to request
-    req.user = userResult.rows[0];
+    const userData = userResult.rows[0];
+    // Parse contratos JSONB to JS array
+    if (typeof userData.contratos === 'string') {
+      try { userData.contratos = JSON.parse(userData.contratos); } catch { userData.contratos = []; }
+    }
+    if (!Array.isArray(userData.contratos)) userData.contratos = [];
+    req.user = userData;
     req.token = token;
 
     next();
@@ -82,7 +88,7 @@ const optionalAuth = async (req, res, next) => {
     const decoded = jwt.verify(token, config.jwtSecret);
 
     const userResult = await pool.query(
-      'SELECT id, email, nombre, rol, activo FROM usuarios WHERE id = $1 AND activo = true',
+      'SELECT id, email, nombre, rol, activo, contratos FROM usuarios WHERE id = $1 AND activo = true',
       [decoded.userId]
     );
 

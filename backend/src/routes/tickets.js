@@ -463,6 +463,18 @@ router.get('/', authenticate, authorize('ti', 'coordinador_ti', 'nuevas_tecnolog
       query += ` AND t.estado = 'escalado_nt'`;
     }
 
+    // TI users: filter by their assigned contracts
+    if (req.user.rol === 'ti') {
+      const contratos = req.user.contratos || [];
+      if (contratos.length > 0) {
+        query += ` AND t.datos_solicitante->>'operacion_contrato' = ANY($${paramIndex++})`;
+        params.push(contratos);
+      } else {
+        query += ` AND false`;
+      }
+    }
+    // coordinador_ti sees ALL tickets (no filter)
+
     // Count
     const countQuery = `SELECT COUNT(*) FROM (${query}) as subquery`;
     const countResult = await pool.query(countQuery, params);
@@ -574,7 +586,7 @@ router.get('/:codigo', authenticate, authorize('ti', 'coordinador_ti', 'nuevas_t
        FROM comentarios c
        LEFT JOIN usuarios u ON c.usuario_id = u.id
        WHERE c.entidad_tipo = 'ticket' AND c.entidad_id = $1
-       ORDER BY c.creado_en DESC`,
+       ORDER BY c.creado_en ASC`,
       [ticket.id]
     );
 

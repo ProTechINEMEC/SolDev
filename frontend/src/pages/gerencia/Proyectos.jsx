@@ -9,7 +9,6 @@ import {
   PauseCircleOutlined, CalendarOutlined, TeamOutlined
 } from '@ant-design/icons'
 import { proyectosApi } from '../../services/api'
-import { useAuthStore } from '../../stores/authStore'
 import dayjs from 'dayjs'
 
 const { Title, Text } = Typography
@@ -20,21 +19,27 @@ const estadoColors = {
   planificacion: 'default',
   en_desarrollo: 'processing',
   pausado: 'warning',
-  completado: 'success'
+  completado: 'success',
+  cancelado_gerencia: 'error',
+  cancelado_coordinador: 'error',
+  cancelado: 'error'
 }
 
 const estadoLabels = {
-  planificacion: 'Planificación',
+  planificacion: 'Planificacion',
   en_desarrollo: 'En Desarrollo',
   pausado: 'Pausado',
-  completado: 'Completado'
+  completado: 'Completado',
+  cancelado: 'Cancelado',
+  cancelado_coordinador: 'Cancelado (Coord. NT)',
+  cancelado_gerencia: 'Cancelado (Gerencia)'
 }
 
 const prioridadColors = { critica: 'red', alta: 'orange', media: 'blue', baja: 'green' }
 
 function ProyectoCard({ proyecto, showProgress = false }) {
   return (
-    <Link to={`/nt/proyectos/${proyecto.codigo}`}>
+    <Link to={`/gerencia/proyectos/${proyecto.codigo}`}>
       <Card hoverable size="small" style={{ marginBottom: 12 }} styles={{ body: { padding: 16 } }}>
         <Row gutter={16} align="middle">
           <Col flex="auto">
@@ -43,14 +48,14 @@ function ProyectoCard({ proyecto, showProgress = false }) {
                 <Text strong style={{ color: INEMEC_RED }}>{proyecto.codigo}</Text>
                 <Tag color={estadoColors[proyecto.estado]}>
                   {proyecto.estado === 'pausado' && <PauseCircleOutlined style={{ marginRight: 4 }} />}
-                  {estadoLabels[proyecto.estado]}
+                  {estadoLabels[proyecto.estado] || proyecto.estado}
                 </Tag>
                 <Tag color={prioridadColors[proyecto.prioridad]}>{proyecto.prioridad}</Tag>
               </Space>
               <Text ellipsis style={{ maxWidth: '100%' }}>{proyecto.titulo}</Text>
               <Space size="middle">
                 {proyecto.lider_nombre && (
-                  <Tooltip title="Líder del Proyecto">
+                  <Tooltip title="Lider del Proyecto">
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       <TeamOutlined style={{ marginRight: 4 }} />
                       {proyecto.lider_nombre}
@@ -73,12 +78,12 @@ function ProyectoCard({ proyecto, showProgress = false }) {
             <Col style={{ minWidth: 200, textAlign: 'right' }}>
               <Space direction="vertical" size={4} style={{ width: '100%' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text type="secondary" style={{ fontSize: 11 }}>Teórico</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>Teorico</Text>
                   <Text style={{ fontSize: 11 }}>{proyecto.progreso_teorico || 0}%</Text>
                 </div>
                 <Progress percent={proyecto.progreso_teorico || 0} size="small" showInfo={false} strokeColor="#8c8c8c" />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text type="secondary" style={{ fontSize: 11 }}>Práctico</Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>Practico</Text>
                   <Text style={{ fontSize: 11 }}>{proyecto.progreso_practico || 0}%</Text>
                 </div>
                 <Progress percent={proyecto.progreso_practico || 0} size="small" showInfo={false} strokeColor={INEMEC_RED} />
@@ -96,7 +101,7 @@ function ProyectoCard({ proyecto, showProgress = false }) {
                 }}>
                   {Math.max(0, dayjs(proyecto.fecha_inicio_estimada).diff(dayjs(), 'day'))}
                 </div>
-                <Text type="secondary" style={{ fontSize: 11 }}>días</Text>
+                <Text type="secondary" style={{ fontSize: 11 }}>dias</Text>
               </div>
             </Col>
           )}
@@ -116,8 +121,7 @@ function ProyectoCard({ proyecto, showProgress = false }) {
   )
 }
 
-function NTProyectos() {
-  const { user } = useAuthStore()
+function GerenciaProyectos() {
   const [loading, setLoading] = useState(true)
   const [proyectosActivos, setProyectosActivos] = useState([])
   const [proyectosAgendados, setProyectosAgendados] = useState([])
@@ -127,14 +131,11 @@ function NTProyectos() {
   const loadProyectos = async () => {
     try {
       setLoading(true)
-
-      // Fetch from proyectos API with inline progress data
       const [activosRes, agendadosRes] = await Promise.all([
         proyectosApi.list({ estado: 'en_desarrollo,pausado', limit: 100 }),
         proyectosApi.list({ estado: 'planificacion', limit: 100 })
       ])
 
-      // Sort active: pausado first, then by priority and date
       const sortProyectos = (a, b) => {
         if (a.estado === 'pausado' && b.estado !== 'pausado') return -1
         if (a.estado !== 'pausado' && b.estado === 'pausado') return 1
@@ -146,12 +147,9 @@ function NTProyectos() {
       }
 
       setProyectosActivos((activosRes.data.proyectos || []).sort(sortProyectos))
-
-      // Sort scheduled by start date
-      const sorted = (agendadosRes.data.proyectos || []).sort((a, b) =>
+      setProyectosAgendados((agendadosRes.data.proyectos || []).sort((a, b) =>
         new Date(a.fecha_inicio_estimada) - new Date(b.fecha_inicio_estimada)
-      )
-      setProyectosAgendados(sorted)
+      ))
     } catch (error) {
       console.error('Error loading proyectos:', error)
     } finally {
@@ -176,7 +174,6 @@ function NTProyectos() {
       </Title>
 
       <Row gutter={24}>
-        {/* Active Projects Column */}
         <Col xs={24} lg={12}>
           <Card
             title={
@@ -196,7 +193,6 @@ function NTProyectos() {
           </Card>
         </Col>
 
-        {/* Scheduled Projects Column */}
         <Col xs={24} lg={12}>
           <Card
             title={
@@ -220,4 +216,4 @@ function NTProyectos() {
   )
 }
 
-export default NTProyectos
+export default GerenciaProyectos

@@ -7,6 +7,7 @@ const notificationService = require('../services/notificationService');
 const emailService = require('../services/email');
 const logger = require('../utils/logger');
 const publicLabels = require('../utils/publicLabels');
+const { addWorkdays, getNextWorkday } = require('../utils/workdays');
 const { uploadMultiple, uploadsDir } = require('../config/multer');
 const path = require('path');
 const fs = require('fs');
@@ -277,7 +278,15 @@ const proyectoFullSchema = Joi.object({
   beneficios: beneficiosSchema.optional().allow(null),
   desempeno: desempenoSchema.optional().allow(null),
   adjuntos: adjuntosSchema.optional().allow(null),
-  declaracion: declaracionSchema.required()
+  declaracion: declaracionSchema.required(),
+  integracion: Joi.object({
+    fases: Joi.array().items(Joi.string().max(100)).optional().default([]),
+    tareas: Joi.array().items(Joi.object({
+      nombre: Joi.string().min(1).max(200).required(),
+      duracion_dias: Joi.number().integer().min(1).required(),
+      fase: Joi.string().max(100).allow('', null).optional()
+    })).optional().default([])
+  }).optional().allow(null)
 });
 
 // Function to get schema based on tipo
@@ -395,7 +404,8 @@ router.post('/', optionalAuth, async (req, res, next) => {
         beneficios: value.beneficios || {},
         desempeno: value.desempeno || {},
         adjuntos: value.adjuntos || {},
-        declaracion: value.declaracion
+        declaracion: value.declaracion,
+        integracion: value.integracion || { fases: [], tareas: [] }
       };
     }
 
@@ -406,8 +416,8 @@ router.post('/', optionalAuth, async (req, res, next) => {
         solicitante_id, usuario_creador_id,
         datos_solicitante, datos_patrocinador, datos_stakeholders,
         descripcion_problema, necesidad_urgencia, solucion_propuesta,
-        beneficios, kpis, declaracion
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        beneficios, kpis, declaracion, integracion
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       RETURNING *`,
       [
         codigo,
@@ -426,7 +436,8 @@ router.post('/', optionalAuth, async (req, res, next) => {
         JSON.stringify(datosFormulario.solucion || {}),
         JSON.stringify(datosFormulario.beneficios || {}),
         JSON.stringify(datosFormulario.desempeno?.indicadores || []),
-        JSON.stringify(datosFormulario.declaracion || { confirmacion: datosFormulario.confirmacion })
+        JSON.stringify(datosFormulario.declaracion || { confirmacion: datosFormulario.confirmacion }),
+        JSON.stringify(datosFormulario.integracion || { fases: [], tareas: [] })
       ]
     );
 
@@ -718,6 +729,18 @@ router.get('/consulta/:codigo', async (req, res, next) => {
       });
     }
 
+    // Check if this solicitud has an associated project
+    let proyectoCodigo = null;
+    if (solicitudId) {
+      const proyectoResult = await pool.query(
+        'SELECT codigo FROM proyectos WHERE solicitud_id = $1',
+        [solicitudId]
+      );
+      if (proyectoResult.rows.length > 0) {
+        proyectoCodigo = proyectoResult.rows[0].codigo;
+      }
+    }
+
     res.json({
       solicitud: {
         codigo: solicitud.codigo,
@@ -734,7 +757,8 @@ router.get('/consulta/:codigo', async (req, res, next) => {
         progress: publicEstado.progress,
         milestones: publicEstado.milestones,
         es_terminal: publicEstado.es_terminal,
-        es_transferido: publicEstado.es_transferido
+        es_transferido: publicEstado.es_transferido,
+        proyecto_codigo: proyectoCodigo
       },
       transferencia: transferInfo,
       comentarios: comentariosPublicos
@@ -778,7 +802,7 @@ router.get('/:codigo', optionalAuth, async (req, res, next) => {
        FROM comentarios c
        LEFT JOIN usuarios u ON c.usuario_id = u.id
        WHERE c.entidad_tipo = 'solicitud' AND c.entidad_id = $1
-       ORDER BY c.creado_en DESC`,
+       ORDER BY c.creado_en ASC`,
       [solicitud.id]
     );
 
@@ -1317,6 +1341,7 @@ router.post('/:codigo/agendar', authenticate, authorize('gerencia'), async (req,
         [id]
       );
 
+      let proyectoId;
       if (proyectoExists.rows.length === 0) {
         const year = new Date().getFullYear();
         const countResult = await client.query(
@@ -1326,17 +1351,39 @@ router.post('/:codigo/agendar', authenticate, authorize('gerencia'), async (req,
         const count = parseInt(countResult.rows[0].count, 10) + 1;
         const codigoProyecto = `PRY-${year}-${count.toString().padStart(4, '0')}`;
 
-        await client.query(
+        // Get evaluacion for linking
+        const evalResult = await client.query(
+          `SELECT id, lider_id FROM evaluaciones_nt WHERE solicitud_id = $1 AND estado = 'enviado' LIMIT 1`,
+          [id]
+        );
+        const evaluacion = evalResult.rows[0];
+
+        // Get leader from evaluacion_asignaciones
+        let liderId = evaluacion?.lider_id;
+        if (!liderId && evaluacion) {
+          const liderResult = await client.query(
+            `SELECT usuario_id FROM evaluacion_asignaciones WHERE evaluacion_id = $1 AND es_lider = true LIMIT 1`,
+            [evaluacion.id]
+          );
+          liderId = liderResult.rows[0]?.usuario_id;
+        }
+
+        // Get priority from solicitud
+        const solPrioridad = solicitud.prioridad || 'media';
+
+        const proyectoInsert = await client.query(
           `INSERT INTO proyectos (
             codigo, solicitud_id, titulo, descripcion, estado,
-            responsable_id, fecha_inicio_estimada, fecha_fin_estimada, datos_proyecto
-          ) VALUES ($1, $2, $3, $4, 'planificacion', $5, $6, $7, $8)`,
+            responsable_id, fecha_inicio_estimada, fecha_fin_estimada, datos_proyecto,
+            evaluacion_id, prioridad
+          ) VALUES ($1, $2, $3, $4, 'planificacion', $5, $6, $7, $8, $9, $10)
+          RETURNING id`,
           [
             codigoProyecto,
             id,
             solicitud.titulo,
             solicitud.descripcion_problema?.situacion_actual || '',
-            req.user.id,
+            liderId || req.user.id,
             fechaInicio,
             fechaFin,
             JSON.stringify({
@@ -1344,10 +1391,78 @@ router.post('/:codigo/agendar', authenticate, authorize('gerencia'), async (req,
               stakeholders: solicitud.datos_stakeholders,
               beneficios: solicitud.beneficios,
               kpis: solicitud.kpis
-            })
+            }),
+            evaluacion?.id || null,
+            solPrioridad
           ]
         );
+        proyectoId = proyectoInsert.rows[0].id;
+
+        // --- Auto-copy: evaluacion_asignaciones → proyecto_miembros ---
+        if (evaluacion) {
+          await client.query(
+            `INSERT INTO proyecto_miembros (proyecto_id, usuario_id, rol_proyecto, es_original, es_lider, horas_estimadas)
+             SELECT $1, ea.usuario_id, ea.rol, true, ea.es_lider, ea.horas_estimadas
+             FROM evaluacion_asignaciones ea
+             WHERE ea.evaluacion_id = $2
+             ON CONFLICT (proyecto_id, usuario_id) DO NOTHING`,
+            [proyectoId, evaluacion.id]
+          );
+
+          // --- Auto-copy: cronograma_tareas → proyecto_tareas ---
+          const cronogramaResult = await client.query(
+            `SELECT id FROM cronogramas WHERE evaluacion_id = $1 OR solicitud_id = $2 LIMIT 1`,
+            [evaluacion.id, id]
+          );
+
+          if (cronogramaResult.rows.length > 0) {
+            const cronogramaId = cronogramaResult.rows[0].id;
+            await client.query(
+              `INSERT INTO proyecto_tareas (
+                proyecto_id, titulo, descripcion, fecha_inicio, fecha_fin,
+                progreso, completada, asignado_id, color, orden,
+                fase, duracion_dias, es_emergente, es_bloqueado,
+                cronograma_tarea_id, dependencias
+              )
+              SELECT
+                $1, ct.titulo, ct.descripcion, ct.fecha_inicio, ct.fecha_fin,
+                0, false, ct.asignado_id, COALESCE(ct.color, '#1890ff'), ct.orden,
+                ct.fase, COALESCE(ct.duracion_dias, 1), false, true,
+                ct.id, COALESCE(ct.dependencias, '[]'::jsonb)
+              FROM cronograma_tareas ct
+              WHERE ct.cronograma_id = $2
+              ORDER BY ct.fase, ct.orden, ct.fecha_inicio`,
+              [proyectoId, cronogramaId]
+            );
+
+            // Compute workday dates sequentially for all proyecto_tareas
+            const insertedTareas = await client.query(
+              `SELECT id, duracion_dias FROM proyecto_tareas
+               WHERE proyecto_id = $1
+               ORDER BY fase NULLS LAST, orden, id`,
+              [proyectoId]
+            );
+
+            let nextStart = getNextWorkday(new Date());
+            for (const tarea of insertedTareas.rows) {
+              const fechaInicioTarea = new Date(nextStart);
+              const duracion = tarea.duracion_dias || 1;
+              const fechaFinTarea = addWorkdays(fechaInicioTarea, duracion - 1);
+
+              await client.query(
+                `UPDATE proyecto_tareas SET fecha_inicio = $1, fecha_fin = $2 WHERE id = $3`,
+                [fechaInicioTarea.toISOString().split('T')[0], fechaFinTarea.toISOString().split('T')[0], tarea.id]
+              );
+
+              // Next task starts the workday after this task ends
+              const dayAfter = new Date(fechaFinTarea);
+              dayAfter.setDate(dayAfter.getDate() + 1);
+              nextStart = getNextWorkday(dayAfter);
+            }
+          }
+        }
       } else {
+        proyectoId = proyectoExists.rows[0].id;
         // Update existing project with dates
         await client.query(
           `UPDATE proyectos SET
@@ -2075,7 +2190,8 @@ router.patch('/:codigo/formulario', authenticate, authorize('nuevas_tecnologias'
       solucion,
       beneficios,
       desempeno,
-      proyecto_referencia
+      proyecto_referencia,
+      integracion
     } = req.body;
 
     // Build current data for comparison
@@ -2090,7 +2206,8 @@ router.patch('/:codigo/formulario', authenticate, authorize('nuevas_tecnologias'
         indicadores: solicitud.kpis || [],
         ...(solicitud.declaracion?.desempeno || {})
       },
-      proyecto_referencia: solicitud.proyecto_referencia || {}
+      proyecto_referencia: solicitud.proyecto_referencia || {},
+      integracion: solicitud.integracion || { fases: [], tareas: [] }
     };
 
     // Build new data
@@ -2102,7 +2219,8 @@ router.patch('/:codigo/formulario', authenticate, authorize('nuevas_tecnologias'
       solucion: solucion !== undefined ? solucion : currentData.solucion,
       beneficios: beneficios !== undefined ? beneficios : currentData.beneficios,
       desempeno: desempeno !== undefined ? desempeno : currentData.desempeno,
-      proyecto_referencia: proyecto_referencia !== undefined ? proyecto_referencia : currentData.proyecto_referencia
+      proyecto_referencia: proyecto_referencia !== undefined ? proyecto_referencia : currentData.proyecto_referencia,
+      integracion: integracion !== undefined ? integracion : currentData.integracion
     };
 
     // Generate list of changes
@@ -2132,6 +2250,9 @@ router.patch('/:codigo/formulario', authenticate, authorize('nuevas_tecnologias'
     if (proyecto_referencia !== undefined) {
       allChanges.push(...compareAndGenerateChanges(currentData.proyecto_referencia, newData.proyecto_referencia, 'proyecto_referencia'));
     }
+    if (integracion !== undefined) {
+      allChanges.push(...compareAndGenerateChanges(currentData.integracion, newData.integracion, 'integracion'));
+    }
 
     // If no changes, return early
     if (allChanges.length === 0) {
@@ -2153,8 +2274,9 @@ router.patch('/:codigo/formulario', authenticate, authorize('nuevas_tecnologias'
           beneficios = $6,
           kpis = $7,
           proyecto_referencia = $8,
+          integracion = $9,
           actualizado_en = NOW()
-         WHERE id = $9`,
+         WHERE id = $10`,
         [
           JSON.stringify(newData.sponsor),
           JSON.stringify(newData.stakeholders),
@@ -2164,6 +2286,7 @@ router.patch('/:codigo/formulario', authenticate, authorize('nuevas_tecnologias'
           JSON.stringify(newData.beneficios),
           JSON.stringify(newData.desempeno.indicadores || []),
           JSON.stringify(newData.proyecto_referencia),
+          JSON.stringify(newData.integracion),
           id
         ]
       );
@@ -2207,856 +2330,123 @@ router.patch('/:codigo/formulario', authenticate, authorize('nuevas_tecnologias'
   }
 });
 
-// ==============================================
-// PROJECT WORKFLOW ENDPOINTS
-// ==============================================
-
-// PUT /api/solicitudes/:codigo/iniciar-desarrollo - Start project development
-router.put('/:codigo/iniciar-desarrollo', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
-  try {
-    const { codigo } = req.params;
-    const id = await getSolicitudIdByCodigo(codigo);
-
-    const solicitudResult = await pool.query('SELECT * FROM solicitudes WHERE id = $1', [id]);
-    const solicitud = solicitudResult.rows[0];
-
-    // Must be agendado to start development
-    if (solicitud.estado !== 'agendado') {
-      throw new AppError(`Solo se puede iniciar desarrollo de solicitudes agendadas. Estado actual: ${solicitud.estado}`, 400);
-    }
-
-    // Check if user is project lead
-    const evaluacionResult = await pool.query(
-      'SELECT lider_id FROM evaluaciones_nt WHERE solicitud_id = $1 AND estado = $2',
-      [id, 'enviado']
-    );
-    const liderId = evaluacionResult.rows[0]?.lider_id;
-
-    // Only lead or gerencia can start development
-    if (liderId && liderId !== req.user.id && req.user.rol !== 'gerencia') {
-      throw new AppError('Solo el líder del proyecto puede iniciar el desarrollo', 403);
-    }
-
-    await withTransaction(async (client) => {
-      // Update solicitud to en_desarrollo and set fecha_inicio_desarrollo
-      await client.query(
-        `UPDATE solicitudes SET
-          estado = 'en_desarrollo',
-          fecha_inicio_desarrollo = NOW(),
-          actualizado_en = NOW()
-         WHERE id = $1`,
-        [id]
-      );
-
-      // Also update the project if exists
-      await client.query(
-        `UPDATE proyectos SET estado = 'en_desarrollo', actualizado_en = NOW()
-         WHERE solicitud_id = $1`,
-        [id]
-      );
-
-      // Log change
-      await client.query(
-        `INSERT INTO historial_cambios (entidad_tipo, entidad_id, accion, datos_anteriores, datos_nuevos, usuario_id)
-         VALUES ('solicitud', $1, 'iniciar_desarrollo', $2, $3, $4)`,
-        [id, JSON.stringify({ estado: 'agendado' }), JSON.stringify({ estado: 'en_desarrollo' }), req.user.id]
-      );
-
-      // Add comment
-      await client.query(
-        `INSERT INTO comentarios (entidad_tipo, entidad_id, usuario_id, contenido, tipo, interno)
-         VALUES ('solicitud', $1, $2, 'Proyecto iniciado en desarrollo', 'cambio_estado', true)`,
-        [id, req.user.id]
-      );
-
-      // Notify team and gerencia
-      await client.query(
-        `INSERT INTO notificaciones (usuario_id, tipo, titulo, mensaje, datos)
-         SELECT id, 'proyecto_iniciado', 'Proyecto iniciado',
-           $1, $2
-         FROM usuarios WHERE rol IN ('nuevas_tecnologias', 'gerencia') AND activo = true`,
-        [
-          `El proyecto ${solicitud.codigo} ha iniciado desarrollo`,
-          JSON.stringify({ solicitud_id: id, codigo: solicitud.codigo })
-        ]
-      );
-    });
-
-    // Send email to requester with project code
-    const solicitanteData = solicitud.datos_solicitante || {};
-    const solicitanteEmail = solicitanteData.correo || solicitanteData.email;
-    const solicitanteNombre = solicitanteData.nombre_completo || 'Solicitante';
-
-    // Get project code if exists
-    const proyectoResult = await pool.query(
-      'SELECT codigo FROM proyectos WHERE solicitud_id = $1',
-      [id]
-    );
-    const proyectoCodigo = proyectoResult.rows[0]?.codigo;
-
-    if (solicitanteEmail) {
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:11000';
-      const consultaUrl = proyectoCodigo
-        ? `${frontendUrl}/proyecto/consulta/${proyectoCodigo}`
-        : `${frontendUrl}/consulta/${solicitud.codigo}`;
-
-      emailService.sendEmail({
-        to: solicitanteEmail,
-        subject: `Su proyecto ha iniciado desarrollo - ${proyectoCodigo || solicitud.codigo}`,
-        html: `
-          <h2>¡Su proyecto ha iniciado!</h2>
-          <p>Estimado/a ${solicitanteNombre},</p>
-          <p>Nos complace informarle que su solicitud <strong>${solicitud.codigo}</strong> ha sido aprobada y el proyecto ha iniciado su fase de desarrollo.</p>
-          ${proyectoCodigo ? `<p><strong>Nuevo código de proyecto:</strong> ${proyectoCodigo}</p>` : ''}
-          <p>Puede consultar el estado y progreso del proyecto en cualquier momento:</p>
-          <p><a href="${consultaUrl}" style="background-color: #D52B1E; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">Ver Progreso del Proyecto</a></p>
-          <p>Le mantendremos informado sobre avances importantes.</p>
-        `
-      }).catch(err => logger.error('Error sending project start email:', err));
-    }
-
-    logger.info(`Project ${solicitud.codigo} started development by ${req.user.email}`);
-
-    res.json({
-      message: 'Proyecto iniciado en desarrollo',
-      solicitud: {
-        id,
-        codigo: solicitud.codigo,
-        estado: 'en_desarrollo',
-        fecha_inicio_desarrollo: new Date()
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// PUT /api/solicitudes/:codigo/pausar - Pause project
-router.put('/:codigo/pausar', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
-  try {
-    const { codigo } = req.params;
-    const { motivo } = req.body;
-    const id = await getSolicitudIdByCodigo(codigo);
-
-    if (!motivo || motivo.trim().length === 0) {
-      throw new AppError('Debe proporcionar un motivo para pausar el proyecto', 400);
-    }
-
-    const solicitudResult = await pool.query('SELECT * FROM solicitudes WHERE id = $1', [id]);
-    const solicitud = solicitudResult.rows[0];
-
-    if (solicitud.estado !== 'en_desarrollo') {
-      throw new AppError(`Solo se pueden pausar proyectos en desarrollo. Estado actual: ${solicitud.estado}`, 400);
-    }
-
-    // Check if user is project lead
-    const evaluacionResult = await pool.query(
-      'SELECT lider_id FROM evaluaciones_nt WHERE solicitud_id = $1 AND estado = $2',
-      [id, 'enviado']
-    );
-    const liderId = evaluacionResult.rows[0]?.lider_id;
-
-    if (liderId && liderId !== req.user.id) {
-      throw new AppError('Solo el líder del proyecto puede pausar el proyecto', 403);
-    }
-
-    await withTransaction(async (client) => {
-      // Update solicitud to pausado
-      await client.query(
-        `UPDATE solicitudes SET
-          estado = 'pausado',
-          actualizado_en = NOW()
-         WHERE id = $1`,
-        [id]
-      );
-
-      // Create pause record
-      await client.query(
-        `INSERT INTO proyecto_pausas (solicitud_id, motivo, creado_por)
-         VALUES ($1, $2, $3)`,
-        [id, motivo, req.user.id]
-      );
-
-      // Log change
-      await client.query(
-        `INSERT INTO historial_cambios (entidad_tipo, entidad_id, accion, datos_anteriores, datos_nuevos, usuario_id)
-         VALUES ('solicitud', $1, 'pausar', $2, $3, $4)`,
-        [id, JSON.stringify({ estado: 'en_desarrollo' }), JSON.stringify({ estado: 'pausado', motivo }), req.user.id]
-      );
-
-      // Add comment
-      await client.query(
-        `INSERT INTO comentarios (entidad_tipo, entidad_id, usuario_id, contenido, tipo, interno)
-         VALUES ('solicitud', $1, $2, $3, 'cambio_estado', true)`,
-        [id, req.user.id, `Proyecto pausado. Motivo: ${motivo}`]
-      );
-
-      // Notify gerencia
-      await client.query(
-        `INSERT INTO notificaciones (usuario_id, tipo, titulo, mensaje, datos)
-         SELECT id, 'proyecto_pausado', 'Proyecto pausado',
-           $1, $2
-         FROM usuarios WHERE rol = 'gerencia' AND activo = true`,
-        [
-          `El proyecto ${solicitud.codigo} ha sido pausado`,
-          JSON.stringify({ solicitud_id: id, codigo: solicitud.codigo, motivo })
-        ]
-      );
-    });
-
-    // Send email to requester
-    const solicitanteData = solicitud.datos_solicitante || {};
-    const solicitanteEmail = solicitanteData.correo || solicitanteData.email;
-    const solicitanteNombre = solicitanteData.nombre_completo || 'Solicitante';
-
-    if (solicitanteEmail) {
-      emailService.sendEmail({
-        to: solicitanteEmail,
-        subject: `Proyecto pausado - ${solicitud.codigo}`,
-        html: `
-          <h2>Proyecto Pausado Temporalmente</h2>
-          <p>Estimado/a ${solicitanteNombre},</p>
-          <p>Le informamos que el proyecto <strong>${solicitud.codigo}</strong> ha sido pausado temporalmente.</p>
-          <p><strong>Motivo:</strong> ${motivo}</p>
-          <p>Le notificaremos cuando el proyecto sea retomado.</p>
-        `
-      }).catch(err => logger.error('Error sending pause email:', err));
-    }
-
-    logger.info(`Project ${solicitud.codigo} paused by ${req.user.email}: ${motivo}`);
-
-    res.json({
-      message: 'Proyecto pausado',
-      solicitud: {
-        id,
-        codigo: solicitud.codigo,
-        estado: 'pausado'
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// PUT /api/solicitudes/:codigo/reanudar - Resume paused project
-router.put('/:codigo/reanudar', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
-  try {
-    const { codigo } = req.params;
-    const id = await getSolicitudIdByCodigo(codigo);
-
-    const solicitudResult = await pool.query('SELECT * FROM solicitudes WHERE id = $1', [id]);
-    const solicitud = solicitudResult.rows[0];
-
-    if (solicitud.estado !== 'pausado') {
-      throw new AppError(`Solo se pueden reanudar proyectos pausados. Estado actual: ${solicitud.estado}`, 400);
-    }
-
-    // Check if user is project lead
-    const evaluacionResult = await pool.query(
-      'SELECT lider_id FROM evaluaciones_nt WHERE solicitud_id = $1 AND estado = $2',
-      [id, 'enviado']
-    );
-    const liderId = evaluacionResult.rows[0]?.lider_id;
-
-    if (liderId && liderId !== req.user.id) {
-      throw new AppError('Solo el líder del proyecto puede reanudar el proyecto', 403);
-    }
-
-    await withTransaction(async (client) => {
-      // Get active pause to calculate days paused
-      const pausaResult = await client.query(
-        `SELECT id, fecha_inicio FROM proyecto_pausas
-         WHERE solicitud_id = $1 AND fecha_fin IS NULL
-         ORDER BY fecha_inicio DESC LIMIT 1`,
-        [id]
-      );
-
-      if (pausaResult.rows.length > 0) {
-        const pausa = pausaResult.rows[0];
-        const diasPausados = Math.ceil((new Date() - new Date(pausa.fecha_inicio)) / (1000 * 60 * 60 * 24));
-
-        // Close the pause record
-        await client.query(
-          `UPDATE proyecto_pausas SET fecha_fin = NOW(), dias_pausados = $1 WHERE id = $2`,
-          [diasPausados, pausa.id]
-        );
-
-        // Add to total paused days
-        await client.query(
-          `UPDATE solicitudes SET
-            dias_pausados_total = COALESCE(dias_pausados_total, 0) + $1
-           WHERE id = $2`,
-          [diasPausados, id]
-        );
-      }
-
-      // Update solicitud to en_desarrollo
-      await client.query(
-        `UPDATE solicitudes SET
-          estado = 'en_desarrollo',
-          actualizado_en = NOW()
-         WHERE id = $1`,
-        [id]
-      );
-
-      // Log change
-      await client.query(
-        `INSERT INTO historial_cambios (entidad_tipo, entidad_id, accion, datos_anteriores, datos_nuevos, usuario_id)
-         VALUES ('solicitud', $1, 'reanudar', $2, $3, $4)`,
-        [id, JSON.stringify({ estado: 'pausado' }), JSON.stringify({ estado: 'en_desarrollo' }), req.user.id]
-      );
-
-      // Add comment
-      await client.query(
-        `INSERT INTO comentarios (entidad_tipo, entidad_id, usuario_id, contenido, tipo, interno)
-         VALUES ('solicitud', $1, $2, 'Proyecto reanudado', 'cambio_estado', true)`,
-        [id, req.user.id]
-      );
-
-      // Notify gerencia
-      await client.query(
-        `INSERT INTO notificaciones (usuario_id, tipo, titulo, mensaje, datos)
-         SELECT id, 'proyecto_reanudado', 'Proyecto reanudado',
-           $1, $2
-         FROM usuarios WHERE rol = 'gerencia' AND activo = true`,
-        [
-          `El proyecto ${solicitud.codigo} ha sido reanudado`,
-          JSON.stringify({ solicitud_id: id, codigo: solicitud.codigo })
-        ]
-      );
-    });
-
-    // Send email to requester
-    const solicitanteData = solicitud.datos_solicitante || {};
-    const solicitanteEmail = solicitanteData.correo || solicitanteData.email;
-    const solicitanteNombre = solicitanteData.nombre_completo || 'Solicitante';
-
-    if (solicitanteEmail) {
-      emailService.sendEmail({
-        to: solicitanteEmail,
-        subject: `Proyecto reanudado - ${solicitud.codigo}`,
-        html: `
-          <h2>Proyecto Reanudado</h2>
-          <p>Estimado/a ${solicitanteNombre},</p>
-          <p>Le informamos que el proyecto <strong>${solicitud.codigo}</strong> ha sido reanudado y continúa su desarrollo.</p>
-        `
-      }).catch(err => logger.error('Error sending resume email:', err));
-    }
-
-    logger.info(`Project ${solicitud.codigo} resumed by ${req.user.email}`);
-
-    res.json({
-      message: 'Proyecto reanudado',
-      solicitud: {
-        id,
-        codigo: solicitud.codigo,
-        estado: 'en_desarrollo'
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// PUT /api/solicitudes/:codigo/cancelar-proyecto - Cancel project
-router.put('/:codigo/cancelar-proyecto', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
-  try {
-    const { codigo } = req.params;
-    const { motivo } = req.body;
-    const id = await getSolicitudIdByCodigo(codigo);
-
-    if (!motivo || motivo.trim().length === 0) {
-      throw new AppError('Debe proporcionar un motivo para cancelar el proyecto', 400);
-    }
-
-    const solicitudResult = await pool.query('SELECT * FROM solicitudes WHERE id = $1', [id]);
-    const solicitud = solicitudResult.rows[0];
-
-    // Can only cancel projects in desarrollo or pausado
-    if (!['en_desarrollo', 'pausado'].includes(solicitud.estado)) {
-      throw new AppError(`Solo se pueden cancelar proyectos en desarrollo o pausados. Estado actual: ${solicitud.estado}`, 400);
-    }
-
-    // Check if user is project lead
-    const evaluacionResult = await pool.query(
-      'SELECT lider_id FROM evaluaciones_nt WHERE solicitud_id = $1 AND estado = $2',
-      [id, 'enviado']
-    );
-    const liderId = evaluacionResult.rows[0]?.lider_id;
-
-    if (liderId && liderId !== req.user.id) {
-      throw new AppError('Solo el líder del proyecto puede cancelar el proyecto', 403);
-    }
-
-    await withTransaction(async (client) => {
-      // Close any active pause
-      await client.query(
-        `UPDATE proyecto_pausas SET fecha_fin = NOW() WHERE solicitud_id = $1 AND fecha_fin IS NULL`,
-        [id]
-      );
-
-      // Update solicitud to cancelado
-      await client.query(
-        `UPDATE solicitudes SET
-          estado = 'cancelado',
-          motivo_cancelacion = $1,
-          cancelado_en = NOW(),
-          cancelado_por = $2,
-          actualizado_en = NOW()
-         WHERE id = $3`,
-        [motivo, req.user.id, id]
-      );
-
-      // Also update related project if exists
-      await client.query(
-        `UPDATE proyectos SET estado = 'cancelado', actualizado_en = NOW()
-         WHERE solicitud_id = $1`,
-        [id]
-      );
-
-      // Log change
-      await client.query(
-        `INSERT INTO historial_cambios (entidad_tipo, entidad_id, accion, datos_anteriores, datos_nuevos, usuario_id)
-         VALUES ('solicitud', $1, 'cancelar', $2, $3, $4)`,
-        [id, JSON.stringify({ estado: solicitud.estado }), JSON.stringify({ estado: 'cancelado', motivo }), req.user.id]
-      );
-
-      // Add comment
-      await client.query(
-        `INSERT INTO comentarios (entidad_tipo, entidad_id, usuario_id, contenido, tipo, interno)
-         VALUES ('solicitud', $1, $2, $3, 'cambio_estado', true)`,
-        [id, req.user.id, `Proyecto cancelado. Motivo: ${motivo}`]
-      );
-
-      // Notify gerencia
-      await client.query(
-        `INSERT INTO notificaciones (usuario_id, tipo, titulo, mensaje, datos)
-         SELECT id, 'proyecto_cancelado', 'Proyecto cancelado',
-           $1, $2
-         FROM usuarios WHERE rol = 'gerencia' AND activo = true`,
-        [
-          `El proyecto ${solicitud.codigo} ha sido cancelado`,
-          JSON.stringify({ solicitud_id: id, codigo: solicitud.codigo, motivo })
-        ]
-      );
-    });
-
-    // Send email to requester
-    const solicitanteData = solicitud.datos_solicitante || {};
-    const solicitanteEmail = solicitanteData.correo || solicitanteData.email;
-    const solicitanteNombre = solicitanteData.nombre_completo || 'Solicitante';
-
-    if (solicitanteEmail) {
-      emailService.sendEmail({
-        to: solicitanteEmail,
-        subject: `Proyecto cancelado - ${solicitud.codigo}`,
-        html: `
-          <h2>Proyecto Cancelado</h2>
-          <p>Estimado/a ${solicitanteNombre},</p>
-          <p>Lamentamos informarle que el proyecto <strong>${solicitud.codigo}</strong> ha sido cancelado.</p>
-          <p><strong>Motivo:</strong> ${motivo}</p>
-          <p>Si tiene preguntas, por favor contacte al departamento de Nuevas Tecnologías.</p>
-        `
-      }).catch(err => logger.error('Error sending cancellation email:', err));
-    }
-
-    logger.info(`Project ${solicitud.codigo} cancelled by ${req.user.email}: ${motivo}`);
-
-    res.json({
-      message: 'Proyecto cancelado',
-      solicitud: {
-        id,
-        codigo: solicitud.codigo,
-        estado: 'cancelado'
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /api/solicitudes/:codigo/pausas - Get pause history
-router.get('/:codigo/pausas', authenticate, async (req, res, next) => {
-  try {
-    const { codigo } = req.params;
-    const id = await getSolicitudIdByCodigo(codigo);
-
-    const result = await pool.query(
-      `SELECT pp.*, u.nombre as creado_por_nombre
-       FROM proyecto_pausas pp
-       LEFT JOIN usuarios u ON pp.creado_por = u.id
-       WHERE pp.solicitud_id = $1
-       ORDER BY pp.fecha_inicio DESC`,
-      [id]
-    );
-
-    // Calculate active pause days if any
-    let pausaActiva = null;
-    for (const pausa of result.rows) {
-      if (!pausa.fecha_fin) {
-        pausaActiva = {
-          ...pausa,
-          dias_transcurridos: Math.ceil((new Date() - new Date(pausa.fecha_inicio)) / (1000 * 60 * 60 * 24))
-        };
-        break;
-      }
-    }
-
-    res.json({
-      pausas: result.rows,
-      pausa_activa: pausaActiva
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /api/solicitudes/:codigo/progreso - Get project progress data
-router.get('/:codigo/progreso', authenticate, async (req, res, next) => {
-  try {
-    const { codigo } = req.params;
-    const id = await getSolicitudIdByCodigo(codigo);
-
-    const solicitudResult = await pool.query('SELECT * FROM solicitudes WHERE id = $1', [id]);
-    const solicitud = solicitudResult.rows[0];
-
-    // Get evaluation and cronograma
-    const evaluacionResult = await pool.query(
-      `SELECT e.*, u.nombre as lider_nombre
-       FROM evaluaciones_nt e
-       LEFT JOIN usuarios u ON e.lider_id = u.id
-       WHERE e.solicitud_id = $1 AND e.estado = 'enviado'`,
-      [id]
-    );
-    const evaluacion = evaluacionResult.rows[0];
-
-    // Get cronograma
-    const cronogramaResult = await pool.query(
-      'SELECT * FROM cronogramas WHERE solicitud_id = $1',
-      [id]
-    );
-    const cronograma = cronogramaResult.rows[0];
-
-    // Get tasks with assignee info
-    let tareas = [];
-    if (cronograma) {
-      const tareasResult = await pool.query(
-        `SELECT ct.*, u.nombre as asignado_nombre
-         FROM cronograma_tareas ct
-         LEFT JOIN usuarios u ON ct.asignado_id = u.id
-         WHERE ct.cronograma_id = $1
-         ORDER BY ct.fase, ct.orden, ct.fecha_inicio`,
-        [cronograma.id]
-      );
-      tareas = tareasResult.rows;
-    }
-
-    // Calculate theoretical progress
-    let progresoTeorico = 0;
-    if (solicitud.fecha_inicio_desarrollo && solicitud.fecha_inicio_programada && solicitud.fecha_fin_programada) {
-      const fechaInicio = new Date(solicitud.fecha_inicio_desarrollo);
-      const diasPlanificados = Math.ceil(
-        (new Date(solicitud.fecha_fin_programada) - new Date(solicitud.fecha_inicio_programada)) / (1000 * 60 * 60 * 24)
-      );
-      const diasPausados = solicitud.dias_pausados_total || 0;
-      const diasEnDesarrollo = Math.max(0, Math.ceil((new Date() - fechaInicio) / (1000 * 60 * 60 * 24)) - diasPausados);
-
-      if (diasPlanificados > 0) {
-        progresoTeorico = Math.min(100, Math.round((diasEnDesarrollo / diasPlanificados) * 100));
-      }
-    }
-
-    // Calculate practical progress (weighted average)
-    let progresoPractico = 0;
-    if (tareas.length > 0) {
-      const totalPesoProgreso = tareas.reduce((sum, t) => sum + ((t.progreso || 0) * (t.duracion_dias || 1)), 0);
-      const totalPeso = tareas.reduce((sum, t) => sum + (t.duracion_dias || 1), 0);
-      if (totalPeso > 0) {
-        progresoPractico = Math.round(totalPesoProgreso / totalPeso);
-      }
-    }
-
-    // Group tasks by phase
-    const tareasPorFase = {};
-    for (const tarea of tareas) {
-      const fase = tarea.fase || 'Sin Fase';
-      if (!tareasPorFase[fase]) {
-        tareasPorFase[fase] = [];
-      }
-      tareasPorFase[fase].push(tarea);
-    }
-
-    // Get pause info
-    const pausasResult = await pool.query(
-      `SELECT * FROM proyecto_pausas WHERE solicitud_id = $1 ORDER BY fecha_inicio DESC`,
-      [id]
-    );
-    const pausas = pausasResult.rows;
-    const pausaActiva = pausas.find(p => !p.fecha_fin);
-
-    res.json({
-      solicitud: {
-        id: solicitud.id,
-        codigo: solicitud.codigo,
-        titulo: solicitud.titulo,
-        estado: solicitud.estado,
-        fecha_inicio_programada: solicitud.fecha_inicio_programada,
-        fecha_fin_programada: solicitud.fecha_fin_programada,
-        fecha_inicio_desarrollo: solicitud.fecha_inicio_desarrollo,
-        dias_pausados_total: solicitud.dias_pausados_total || 0
-      },
-      evaluacion,
-      cronograma,
-      tareas,
-      tareas_por_fase: tareasPorFase,
-      progreso_teorico: progresoTeorico,
-      progreso_practico: progresoPractico,
-      total_tareas: tareas.length,
-      tareas_completadas: tareas.filter(t => t.completado).length,
-      tareas_emergentes: tareas.filter(t => t.es_emergente).length,
-      pausas,
-      pausa_activa: pausaActiva
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// PUT /api/solicitudes/:codigo/tareas/:tareaId/progreso - Update task progress
-router.put('/:codigo/tareas/:tareaId/progreso', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
-  try {
-    const { codigo, tareaId } = req.params;
-    const { progreso } = req.body;
-    const id = await getSolicitudIdByCodigo(codigo);
-
-    if (progreso === undefined || progreso < 0 || progreso > 100) {
-      throw new AppError('El progreso debe ser un número entre 0 y 100', 400);
-    }
-
-    // Get the task and verify it belongs to this solicitud
-    const taskResult = await pool.query(
-      `SELECT ct.*, c.solicitud_id
-       FROM cronograma_tareas ct
-       JOIN cronogramas c ON c.id = ct.cronograma_id
-       WHERE ct.id = $1 AND c.solicitud_id = $2`,
-      [tareaId, id]
-    );
-
-    if (taskResult.rows.length === 0) {
-      throw new AppError('Tarea no encontrada', 404);
-    }
-
-    const tarea = taskResult.rows[0];
-
-    // Check if user can edit this task (assigned to them or is lead)
-    const evaluacionResult = await pool.query(
-      'SELECT lider_id FROM evaluaciones_nt WHERE solicitud_id = $1 AND estado = $2',
-      [id, 'enviado']
-    );
-    const liderId = evaluacionResult.rows[0]?.lider_id;
-
-    // Check if user is assigned to this task (asignado_id or in asignados_ids)
-    const isAssigned = tarea.asignado_id === req.user.id ||
-      (tarea.asignados_ids && tarea.asignados_ids.includes(req.user.id));
-    const isLead = liderId === req.user.id;
-
-    if (!isAssigned && !isLead) {
-      throw new AppError('Solo puede actualizar tareas asignadas a usted o si es el líder del proyecto', 403);
-    }
-
-    // Update task progress
-    const completado = progreso === 100;
-    const result = await pool.query(
-      `UPDATE cronograma_tareas SET progreso = $1, completado = $2 WHERE id = $3 RETURNING *`,
-      [progreso, completado, tareaId]
-    );
-
-    logger.info(`Task ${tareaId} progress updated to ${progreso}% by ${req.user.email}`);
-
-    res.json({
-      message: 'Progreso actualizado',
-      tarea: result.rows[0]
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// POST /api/solicitudes/:codigo/tareas-emergentes - Add emergent task
-router.post('/:codigo/tareas-emergentes', authenticate, authorize('nuevas_tecnologias'), async (req, res, next) => {
-  try {
-    const { codigo } = req.params;
-    const { nombre, duracion_dias, asignado_id, descripcion } = req.body;
-    const id = await getSolicitudIdByCodigo(codigo);
-
-    if (!nombre || !duracion_dias) {
-      throw new AppError('El nombre y duración son requeridos', 400);
-    }
-
-    // Get solicitud and verify it's in desarrollo
-    const solicitudResult = await pool.query('SELECT * FROM solicitudes WHERE id = $1', [id]);
-    const solicitud = solicitudResult.rows[0];
-
-    if (solicitud.estado !== 'en_desarrollo') {
-      throw new AppError('Solo se pueden agregar tareas emergentes a proyectos en desarrollo', 400);
-    }
-
-    // Get the cronograma
-    const cronogramaResult = await pool.query(
-      'SELECT id FROM cronogramas WHERE solicitud_id = $1',
-      [id]
-    );
-
-    if (cronogramaResult.rows.length === 0) {
-      throw new AppError('No se encontró cronograma para este proyecto', 404);
-    }
-
-    const cronogramaId = cronogramaResult.rows[0].id;
-
-    // Calculate dates (start today, end based on duration)
-    const fechaInicio = new Date();
-    const fechaFin = new Date();
-    fechaFin.setDate(fechaFin.getDate() + parseInt(duracion_dias));
-
-    // Create emergent task
-    const result = await pool.query(
-      `INSERT INTO cronograma_tareas (
-        cronograma_id, nombre, titulo, descripcion, duracion_dias,
-        fecha_inicio, fecha_fin, asignado_id, es_emergente, fase, progreso
-      ) VALUES ($1, $2, $2, $3, $4, $5, $6, $7, true, 'Tareas Emergentes', 0)
-      RETURNING *`,
-      [cronogramaId, nombre, descripcion || '', duracion_dias, fechaInicio, fechaFin, asignado_id || null]
-    );
-
-    const tarea = result.rows[0];
-
-    // Get assignee name if any
-    if (tarea.asignado_id) {
-      const userResult = await pool.query('SELECT nombre FROM usuarios WHERE id = $1', [tarea.asignado_id]);
-      tarea.asignado_nombre = userResult.rows[0]?.nombre;
-    }
-
-    // Add comment
-    await pool.query(
-      `INSERT INTO comentarios (entidad_tipo, entidad_id, usuario_id, contenido, tipo, interno)
-       VALUES ('solicitud', $1, $2, $3, 'tarea_emergente', true)`,
-      [id, req.user.id, `Tarea emergente agregada: ${nombre} (${duracion_dias} días)`]
-    );
-
-    logger.info(`Emergent task added to ${codigo}: ${nombre} by ${req.user.email}`);
-
-    res.status(201).json({
-      message: 'Tarea emergente creada',
-      tarea
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
 // GET /api/solicitudes/proyecto/consulta/:codigo - Public project consultation
 router.get('/proyecto/consulta/:codigo', async (req, res, next) => {
   try {
     const { codigo } = req.params;
 
-    // Try to find by project code first (PRY-xxxx), then by solicitud code
-    let solicitud;
+    // Find the project — by PRY code directly, or by SOL code via solicitud
+    let proyecto;
     if (codigo.toUpperCase().startsWith('PRY-')) {
-      const proyectoResult = await pool.query(
-        'SELECT solicitud_id FROM proyectos WHERE codigo = $1',
+      const result = await pool.query(
+        `SELECT p.*, s.codigo as solicitud_codigo, s.datos_solicitante,
+                s.fecha_inicio_programada, s.fecha_fin_programada
+         FROM proyectos p
+         LEFT JOIN solicitudes s ON p.solicitud_id = s.id
+         WHERE p.codigo = $1`,
         [codigo.toUpperCase()]
       );
-      if (proyectoResult.rows.length === 0) {
-        throw new AppError('Proyecto no encontrado', 404);
-      }
-      const solicitudResult = await pool.query(
-        'SELECT * FROM solicitudes WHERE id = $1',
-        [proyectoResult.rows[0].solicitud_id]
-      );
-      solicitud = solicitudResult.rows[0];
+      proyecto = result.rows[0];
     } else {
-      const solicitudResult = await pool.query(
-        'SELECT * FROM solicitudes WHERE codigo = $1',
+      const result = await pool.query(
+        `SELECT p.*, s.codigo as solicitud_codigo, s.datos_solicitante,
+                s.fecha_inicio_programada, s.fecha_fin_programada
+         FROM proyectos p
+         JOIN solicitudes s ON p.solicitud_id = s.id
+         WHERE s.codigo = $1`,
         [codigo.toUpperCase()]
       );
-      solicitud = solicitudResult.rows[0];
+      proyecto = result.rows[0];
     }
 
-    if (!solicitud) {
+    if (!proyecto) {
       throw new AppError('Proyecto no encontrado', 404);
     }
 
-    // Verify it's a project type
-    if (!['proyecto_nuevo_interno', 'actualizacion'].includes(solicitud.tipo)) {
-      throw new AppError('El código no corresponde a un proyecto', 400);
-    }
+    const proyectoId = proyecto.id;
 
-    // Get project code
-    const proyectoResult = await pool.query(
-      'SELECT codigo FROM proyectos WHERE solicitud_id = $1',
-      [solicitud.id]
-    );
-    const proyectoCodigo = proyectoResult.rows[0]?.codigo;
-
-    // Get cronograma and tasks for progress
-    const cronogramaResult = await pool.query(
-      'SELECT id FROM cronogramas WHERE solicitud_id = $1',
-      [solicitud.id]
-    );
-
+    // Get tasks for progress
     let progresoPractico = 0;
     let totalTareas = 0;
     let tareasCompletadas = 0;
+    let fechaFinEstimada = null;
 
-    if (cronogramaResult.rows.length > 0) {
-      const tareasResult = await pool.query(
-        `SELECT progreso, duracion_dias, completado FROM cronograma_tareas WHERE cronograma_id = $1`,
-        [cronogramaResult.rows[0].id]
-      );
+    const tareasResult = await pool.query(
+      `SELECT progreso, duracion_dias, completada, fecha_fin FROM proyecto_tareas WHERE proyecto_id = $1
+       ORDER BY fecha_fin DESC NULLS LAST`,
+      [proyectoId]
+    );
 
-      totalTareas = tareasResult.rows.length;
-      tareasCompletadas = tareasResult.rows.filter(t => t.completado).length;
+    totalTareas = tareasResult.rows.length;
+    tareasCompletadas = tareasResult.rows.filter(t => t.completada).length;
 
-      if (tareasResult.rows.length > 0) {
-        const totalPesoProgreso = tareasResult.rows.reduce((sum, t) => sum + ((t.progreso || 0) * (t.duracion_dias || 1)), 0);
-        const totalPeso = tareasResult.rows.reduce((sum, t) => sum + (t.duracion_dias || 1), 0);
-        if (totalPeso > 0) {
-          progresoPractico = Math.round(totalPesoProgreso / totalPeso);
-        }
+    if (tareasResult.rows.length > 0) {
+      const totalPesoProgreso = tareasResult.rows.reduce((sum, t) => sum + ((t.progreso || 0) * (t.duracion_dias || 1)), 0);
+      const totalPeso = tareasResult.rows.reduce((sum, t) => sum + (t.duracion_dias || 1), 0);
+      if (totalPeso > 0) {
+        progresoPractico = Math.round(totalPesoProgreso / totalPeso);
       }
+      fechaFinEstimada = tareasResult.rows[0]?.fecha_fin || null;
     }
+
+    // Get public comments
+    const comentariosResult = await pool.query(
+      `SELECT c.id, c.contenido, c.tipo, c.creado_en as fecha, c.autor_externo,
+              u.nombre as autor_nombre,
+              (SELECT COUNT(*) FROM archivos a WHERE a.comentario_id = c.id) as adjuntos_count
+       FROM comentarios c
+       LEFT JOIN usuarios u ON c.usuario_id = u.id
+       WHERE c.entidad_tipo = 'proyecto' AND c.entidad_id = $1
+         AND c.tipo IN ('publico', 'comunicacion', 'agendar_reunion', 'respuesta')
+       ORDER BY c.creado_en ASC`,
+      [proyectoId]
+    );
+    const comentarios = comentariosResult.rows.map(c => ({
+      id: c.id,
+      contenido: c.contenido,
+      tipo: c.tipo,
+      fecha: c.fecha,
+      autor: c.autor_externo || c.autor_nombre || 'Equipo técnico',
+      es_respuesta: c.tipo === 'respuesta',
+      adjuntos_count: parseInt(c.adjuntos_count) || 0
+    }));
 
     // Check if paused
     const pausaResult = await pool.query(
-      `SELECT motivo, fecha_inicio FROM proyecto_pausas WHERE solicitud_id = $1 AND fecha_fin IS NULL`,
-      [solicitud.id]
+      `SELECT motivo, fecha_inicio FROM proyecto_pausas WHERE proyecto_id = $1 AND fecha_fin IS NULL`,
+      [proyectoId]
     );
     const isPaused = pausaResult.rows.length > 0;
 
-    // Get public-friendly estado
+    // Public-friendly estado
     const estadoLabels = {
+      planificacion: 'Programado',
       agendado: 'Programado',
       en_desarrollo: 'En Desarrollo',
       pausado: 'Pausado',
       completado: 'Completado',
-      cancelado: 'Cancelado'
+      cancelado: 'Cancelado',
+      cancelado_coordinador: 'Cancelado',
+      cancelado_gerencia: 'Cancelado'
     };
 
     res.json({
       proyecto: {
-        codigo: proyectoCodigo || solicitud.codigo,
-        solicitud_codigo: solicitud.codigo,
-        titulo: solicitud.titulo,
-        estado: estadoLabels[solicitud.estado] || solicitud.estado,
-        estado_interno: solicitud.estado,
-        fecha_inicio_programada: solicitud.fecha_inicio_programada,
-        fecha_fin_programada: solicitud.fecha_fin_programada,
+        codigo: proyecto.codigo,
+        solicitud_codigo: proyecto.solicitud_codigo || null,
+        titulo: proyecto.titulo,
+        estado: estadoLabels[proyecto.estado] || proyecto.estado,
+        estado_interno: proyecto.estado,
+        fecha_inicio_programada: proyecto.fecha_inicio_estimada || proyecto.fecha_inicio_programada,
+        fecha_fin_programada: proyecto.fecha_fin_estimada || proyecto.fecha_fin_programada,
+        fecha_fin_estimada: fechaFinEstimada,
         progreso: progresoPractico,
         total_tareas: totalTareas,
         tareas_completadas: tareasCompletadas,
         is_paused: isPaused,
         pause_reason: isPaused ? pausaResult.rows[0].motivo : null,
-        pause_since: isPaused ? pausaResult.rows[0].fecha_inicio : null
+        pause_since: isPaused ? pausaResult.rows[0].fecha_inicio : null,
+        comentarios
       }
     });
   } catch (error) {

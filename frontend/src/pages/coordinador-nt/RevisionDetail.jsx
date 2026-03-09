@@ -14,7 +14,9 @@ import {
   CrownOutlined, CheckCircleOutlined
 } from '@ant-design/icons'
 import { solicitudesApi, evaluacionesApi, exportApi, usuariosApi } from '../../services/api'
-import WorkloadChart from '../../components/WorkloadChart'
+import IntegracionDisplay from '../../components/IntegracionDisplay'
+import GanttChart from '../../components/GanttChart'
+import { addWorkdaysFE } from '../../utils/workdays'
 import dayjs from 'dayjs'
 
 const { Title, Text, Paragraph } = Typography
@@ -530,6 +532,8 @@ function CoordinadorNTRevisionDetail() {
               </Descriptions>
             </Card>
 
+            <IntegracionDisplay integracion={solicitud.integracion} />
+
             <Card title={<><TrophyOutlined /> Beneficios Esperados</>} size="small">
               <Descriptions bordered column={1} size="small">
                 <Descriptions.Item label="Descripcion">
@@ -624,14 +628,33 @@ function CoordinadorNTRevisionDetail() {
                   </Card>
                 </Col>
 
-                {equipoForChart.length > 0 && fases.length > 0 && tareasForChart.length > 0 && (
+                {fases.length > 0 && tareasForChart.length > 0 && (
                   <Col span={24}>
-                    <WorkloadChart
-                      equipo={equipoForChart}
-                      tareas={tareasForChart}
-                      liderId={liderId}
-                      fases={fases}
-                    />
+                    {(() => {
+                      const startDate = solicitud?.fecha_sugerida
+                        ? new Date(solicitud.fecha_sugerida)
+                        : evaluacion?.fecha_inicio_posible
+                          ? new Date(evaluacion.fecha_inicio_posible)
+                          : new Date()
+                      let cursor = new Date(startDate)
+                      const ganttTareas = []
+                      for (const fase of fases) {
+                        const faseTasks = tareasForChart.filter(t => t.fase === fase)
+                        for (const t of faseTasks) {
+                          const fi = new Date(cursor)
+                          const ff = addWorkdaysFE(fi, (t.duracion_dias || 1) - 1, [])
+                          ganttTareas.push({
+                            ...t, fase, titulo: t.nombre || t.titulo,
+                            fecha_inicio: fi.toISOString().split('T')[0],
+                            fecha_fin: ff.toISOString().split('T')[0],
+                            asignado_nombre: equipoForChart.find(u => (t.asignados_ids || []).includes(u.id))?.nombre || null,
+                            progreso: 0
+                          })
+                          cursor = addWorkdaysFE(ff, 1, [])
+                        }
+                      }
+                      return <GanttChart tareas={ganttTareas} planningMode disabled />
+                    })()}
                   </Col>
                 )}
               </Row>

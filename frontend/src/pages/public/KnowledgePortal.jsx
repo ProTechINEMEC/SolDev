@@ -7,12 +7,38 @@ import { conocimientoApi } from '../../services/api'
 const { Title, Paragraph, Text } = Typography
 const { Search } = Input
 
+const VISIBILITY_COLORS = {
+  public: 'green',
+  nt: 'blue',
+  ti: 'orange',
+  gerencia: 'purple'
+}
+
+const VISIBILITY_LABELS = {
+  public: 'Público',
+  nt: 'NT',
+  ti: 'TI',
+  gerencia: 'Gerencia'
+}
+
 function KnowledgePortal() {
   const [articles, setArticles] = useState([])
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState(null)
+
+  // Check if user is logged in (to show visibility tags)
+  const isLoggedIn = (() => {
+    try {
+      const authStorage = localStorage.getItem('auth-storage')
+      if (authStorage) {
+        const { state } = JSON.parse(authStorage)
+        return !!state?.token
+      }
+    } catch (e) { /* ignore */ }
+    return false
+  })()
 
   useEffect(() => {
     loadData()
@@ -94,8 +120,17 @@ function KnowledgePortal() {
                       <Tag key={tag}>{tag}</Tag>
                     ))}
                   </div>
-                  <div style={{ marginTop: 12, color: '#8c8c8c' }}>
-                    <EyeOutlined /> {article.vistas} vistas
+                  <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text type="secondary"><EyeOutlined /> {article.vistas} vistas</Text>
+                    {isLoggedIn && article.visibilidad && (
+                      <div>
+                        {(Array.isArray(article.visibilidad) ? article.visibilidad : []).map(v => (
+                          <Tag key={v} color={VISIBILITY_COLORS[v]} style={{ fontSize: 10, marginRight: 2 }}>
+                            {VISIBILITY_LABELS[v] || v}
+                          </Tag>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </Card>
               </Link>

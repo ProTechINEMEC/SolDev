@@ -17,3 +17,4 @@ export { default as ConfirmacionCierreSection } from './ConfirmacionCierreSectio
 export { default as ProyectoSelectorSection } from './ProyectoSelectorSection'
 export { default as CostAnalysisSection } from './CostAnalysisSection'
 export { default as MonetaryBenefitSection } from './MonetaryBenefitSection'
+export { default as IntegracionSection } from './IntegracionSection'

@@ -891,6 +891,134 @@ const emailService = {
     return sendEmail(email, `Nueva Solicitud ${codigo} - ${tipoLabels[tipo] || tipo} - Portal INEMEC`, baseTemplate(content));
   },
 
+  // Project status change notification (to requester)
+  async sendProjectStatusChange(email, nombre, codigo, titulo, estadoAnterior, estadoNuevo, comentario = null) {
+    const estadoLabels = {
+      planificacion: 'En Planificación',
+      en_desarrollo: 'En Desarrollo',
+      pausado: 'Pausado',
+      en_implementacion: 'En Implementación',
+      solucionado: 'Solucionado',
+      cancelado: 'Cancelado',
+      cancelado_coordinador: 'Cancelado',
+      cancelado_gerencia: 'Cancelado',
+      cancelado_proyecto: 'Cancelado'
+    };
+
+    const estadoClasses = {
+      en_desarrollo: 'status-aprobado',
+      en_implementacion: 'status-aprobado',
+      solucionado: 'status-aprobado',
+      cancelado: 'status-rechazado',
+      cancelado_coordinador: 'status-rechazado',
+      cancelado_gerencia: 'status-rechazado',
+      cancelado_proyecto: 'status-rechazado',
+      pausado: 'status-pendiente'
+    };
+
+    const content = `
+      <h2>Actualización de Proyecto</h2>
+      <p>Hola <strong>${nombre}</strong>,</p>
+      <p>El estado del proyecto <strong>${codigo}</strong> ha sido actualizado.</p>
+      <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd;"><strong>Título:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">${titulo}</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd;"><strong>Estado anterior:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">${estadoLabels[estadoAnterior] || estadoAnterior}</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd;"><strong>Nuevo estado:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">
+            <span class="status ${estadoClasses[estadoNuevo] || 'status-pendiente'}">
+              ${estadoLabels[estadoNuevo] || estadoNuevo}
+            </span>
+          </td>
+        </tr>
+        ${comentario ? `
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd;"><strong>Comentario:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">${comentario}</td>
+        </tr>
+        ` : ''}
+      </table>
+      <a href="${config.frontendUrl}/proyecto/consulta/${codigo}" class="button">Ver Proyecto</a>
+    `;
+    return sendEmail(email, `Proyecto ${codigo} - ${estadoLabels[estadoNuevo] || estadoNuevo}`, baseTemplate(content));
+  },
+
+  // Implementation started notification (to requester)
+  async sendImplementationStarted(email, nombre, codigo, titulo, tareas) {
+    const tareasCount = tareas || 0;
+
+    const content = `
+      <h2>Desarrollo Completado — Fase de Implementación</h2>
+      <p>Hola <strong>${nombre}</strong>,</p>
+      <p>Nos complace informarle que el desarrollo del proyecto <strong>${codigo}</strong> ha sido completado exitosamente.</p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd;"><strong>Proyecto:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">${titulo}</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd;"><strong>Estado:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">
+            <span class="status status-aprobado">En Implementación</span>
+          </td>
+        </tr>
+        ${tareasCount > 0 ? `
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd;"><strong>Tareas de implementación:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">${tareasCount} tarea(s) programadas</td>
+        </tr>
+        ` : ''}
+      </table>
+
+      <p style="background: #e6f7ff; padding: 15px; border-radius: 4px; border-left: 4px solid #1890ff;">
+        El proyecto ahora se encuentra en fase de implementación. Le notificaremos cuando la implementación se complete.
+      </p>
+
+      <p style="text-align: center; margin-top: 20px;">
+        <a href="${config.frontendUrl}/consulta/${codigo}" class="button">Consultar Estado</a>
+      </p>
+    `;
+    return sendEmail(email, `Proyecto ${codigo} — Implementación Iniciada - Portal INEMEC`, baseTemplate(content));
+  },
+
+  // Implementation completed notification (to requester)
+  async sendImplementationCompleted(email, nombre, codigo, titulo) {
+    const content = `
+      <h2>Proyecto Finalizado</h2>
+      <p>Hola <strong>${nombre}</strong>,</p>
+      <p>Nos complace informarle que el proyecto <strong>${codigo}</strong> ha sido finalizado exitosamente.</p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd;"><strong>Proyecto:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">${titulo}</td>
+        </tr>
+        <tr>
+          <td style="padding: 10px; border: 1px solid #ddd;"><strong>Estado:</strong></td>
+          <td style="padding: 10px; border: 1px solid #ddd;">
+            <span class="status status-aprobado">Solucionado</span>
+          </td>
+        </tr>
+      </table>
+
+      <p style="background: #f6ffed; padding: 15px; border-radius: 4px; border-left: 4px solid #52c41a;">
+        La implementación ha sido completada y el proyecto entregado. Gracias por confiar en el equipo de Nuevas Tecnologías de INEMEC.
+      </p>
+
+      <p style="text-align: center; margin-top: 20px;">
+        <a href="${config.frontendUrl}/consulta/${codigo}" class="button">Consultar Estado</a>
+      </p>
+    `;
+    return sendEmail(email, `Proyecto ${codigo} — Finalizado - Portal INEMEC`, baseTemplate(content));
+  },
+
   // Daily digest of pending solicitudes for NT team
   async sendDailySolicitudesDigest(email, nombre, solicitudes) {
     const tipoLabels = {

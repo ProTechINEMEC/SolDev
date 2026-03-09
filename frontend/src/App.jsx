@@ -13,7 +13,6 @@ import ArticleView from './pages/public/ArticleView'
 import NewRequest from './pages/public/NewRequest'
 import RequestStatus from './pages/public/RequestStatus'
 import TicketStatus from './pages/public/TicketStatus'
-import ProyectoStatus from './pages/public/ProyectoStatus'
 import ResponsePage from './pages/public/ResponsePage'
 import Login from './pages/auth/Login'
 import ForgotPassword from './pages/auth/ForgotPassword'
@@ -31,6 +30,8 @@ import NTProyectos from './pages/nt/Proyectos'
 import NTProyectoDetail from './pages/nt/ProyectoDetail'
 import NTCalendario from './pages/nt/Calendario'
 import NTArticulos from './pages/nt/Articulos'
+import NTImplementacion from './pages/nt/Implementacion'
+import NTImplementacionDetail from './pages/nt/ImplementacionDetail'
 import NTUsuarios from './pages/nt/Usuarios'
 import { OpcionesConfig } from './pages/nt/configuracion'
 
@@ -47,6 +48,10 @@ import GerenciaAprobaciones from './pages/gerencia/Aprobaciones'
 import GerenciaAprobacionDetail from './pages/gerencia/AprobacionDetail'
 import GerenciaReportes from './pages/gerencia/Reportes'
 import GerenciaCalendario from './pages/gerencia/CalendarioGeneral'
+import GerenciaProyectos from './pages/gerencia/Proyectos'
+import GerenciaProyectoDetail from './pages/gerencia/ProyectoDetail'
+import GerenciaImplementacion from './pages/gerencia/Implementacion'
+import GerenciaImplementacionDetail from './pages/gerencia/ImplementacionDetail'
 
 // Admin Pages
 import AdminDashboard from './pages/admin/Dashboard'
@@ -56,6 +61,10 @@ import CoordinadorNTDashboard from './pages/coordinador-nt/Dashboard'
 import CoordinadorNTRevisiones from './pages/coordinador-nt/Revisiones'
 import CoordinadorNTRevisionDetail from './pages/coordinador-nt/RevisionDetail'
 import CoordinadorNTStats from './pages/coordinador-nt/Stats'
+import CoordinadorNTProyectos from './pages/coordinador-nt/Proyectos'
+import CoordinadorNTProyectoDetail from './pages/coordinador-nt/ProyectoDetail'
+import CoordNTImplementacion from './pages/coordinador-nt/Implementacion'
+import CoordNTImplementacionDetail from './pages/coordinador-nt/ImplementacionDetail'
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -99,9 +108,8 @@ function App() {
         <Route path="/conocimiento/:slug" element={<ArticleView />} />
         <Route path="/nueva-solicitud" element={<NewRequest />} />
         <Route path="/consulta/:codigo" element={<RequestStatus />} />
+        <Route path="/consulta" element={<RequestStatus />} />
         <Route path="/tickets/consulta/:codigo" element={<TicketStatus />} />
-        <Route path="/proyecto/consulta/:codigo" element={<ProyectoStatus />} />
-        <Route path="/proyecto/consulta" element={<ProyectoStatus />} />
         <Route path="/responder/:token" element={<ResponsePage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -139,6 +147,8 @@ function App() {
         <Route path="solicitudes/:codigo/evaluacion" element={<NTEvaluacionForm />} />
         <Route path="proyectos" element={<NTProyectos />} />
         <Route path="proyectos/:codigo" element={<NTProyectoDetail />} />
+        <Route path="implementacion" element={<NTImplementacion />} />
+        <Route path="implementacion/:codigo" element={<NTImplementacionDetail />} />
         <Route path="calendario" element={<NTCalendario />} />
         <Route path="articulos" element={<NTArticulos />} />
         <Route path="perfil" element={<Profile />} />
@@ -174,6 +184,10 @@ function App() {
         <Route index element={<CoordinadorNTDashboard />} />
         <Route path="revisiones" element={<CoordinadorNTRevisiones />} />
         <Route path="revision/:codigo" element={<CoordinadorNTRevisionDetail />} />
+        <Route path="proyectos" element={<CoordinadorNTProyectos />} />
+        <Route path="proyectos/:codigo" element={<CoordinadorNTProyectoDetail />} />
+        <Route path="implementacion" element={<CoordNTImplementacion />} />
+        <Route path="implementacion/:codigo" element={<CoordNTImplementacionDetail />} />
         <Route path="calendario" element={<GerenciaCalendario />} />
         <Route path="articulos" element={<NTArticulos />} />
         <Route path="estadisticas" element={<CoordinadorNTStats />} />
@@ -192,6 +206,10 @@ function App() {
         <Route index element={<GerenciaDashboard />} />
         <Route path="aprobaciones" element={<GerenciaAprobaciones />} />
         <Route path="aprobaciones/:codigo" element={<GerenciaAprobacionDetail />} />
+        <Route path="proyectos" element={<GerenciaProyectos />} />
+        <Route path="proyectos/:codigo" element={<GerenciaProyectoDetail />} />
+        <Route path="implementacion" element={<GerenciaImplementacion />} />
+        <Route path="implementacion/:codigo" element={<GerenciaImplementacionDetail />} />
         <Route path="calendario" element={<GerenciaCalendario />} />
         <Route path="reportes" element={<GerenciaReportes />} />
         <Route path="perfil" element={<Profile />} />

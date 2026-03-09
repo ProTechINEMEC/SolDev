@@ -8,7 +8,7 @@ const { Title, Text } = Typography
 const categorias = [
   { key: 'area', label: 'Áreas / Subáreas', description: 'Áreas organizacionales y subáreas' },
   { key: 'operacion_contrato', label: 'Operaciones / Contratos', description: 'Operaciones y contratos disponibles' },
-  { key: 'nivel_urgencia', label: 'Niveles de Urgencia', description: 'Niveles de urgencia para solicitudes' },
+  { key: 'urgencia', label: 'Niveles de Urgencia', description: 'Niveles de urgencia para solicitudes' },
   { key: 'tipo_solucion', label: 'Tipos de Solución', description: 'Tipos de solución esperada' },
   { key: 'forma_entrega', label: 'Formas de Entrega', description: 'Formas de entrega de soluciones' },
   { key: 'criticidad', label: 'Niveles de Criticidad', description: 'Niveles de criticidad para tickets' }

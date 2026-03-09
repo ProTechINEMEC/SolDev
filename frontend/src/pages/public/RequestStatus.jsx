@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { Card, Typography, Steps, Tag, Spin, Button, Input, Form, Descriptions, Alert, Progress, Space, Timeline, Divider } from 'antd'
+import { Card, Typography, Steps, Tag, Spin, Button, Input, Form, Descriptions, Alert, Progress, Space, Timeline, Divider, Result } from 'antd'
 import {
   SearchOutlined, CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined,
   ToolOutlined, RocketOutlined, SwapOutlined, CalendarOutlined, ExclamationCircleOutlined,
-  MessageOutlined, UserOutlined, TeamOutlined
+  MessageOutlined, UserOutlined, TeamOutlined, ProjectOutlined, PauseCircleOutlined,
+  PaperClipOutlined
 } from '@ant-design/icons'
 import { solicitudesApi, ticketsApi } from '../../services/api'
 import dayjs from 'dayjs'
 
 const { Title, Text, Paragraph } = Typography
+
+const INEMEC_RED = '#D52B1E'
 
 const prioridadColors = {
   'Baja': 'green',
@@ -22,13 +25,21 @@ const prioridadColors = {
   'critica': 'red'
 }
 
+const proyectoEstadoConfig = {
+  'Programado': { color: 'blue', icon: <CalendarOutlined /> },
+  'En Desarrollo': { color: 'processing', icon: <ProjectOutlined /> },
+  'Pausado': { color: 'warning', icon: <PauseCircleOutlined /> },
+  'Completado': { color: 'success', icon: <CheckCircleOutlined /> },
+  'Cancelado': { color: 'error', icon: <CloseCircleOutlined /> }
+}
+
 function RequestStatus() {
   const { codigo } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const [result, setResult] = useState(null)
   const [transferencia, setTransferencia] = useState(null)
-  const [resultType, setResultType] = useState(null) // 'solicitud' or 'ticket'
+  const [resultType, setResultType] = useState(null) // 'solicitud', 'ticket', or 'proyecto'
   const [loading, setLoading] = useState(false)
   const [searchCode, setSearchCode] = useState(codigo || searchParams.get('codigo') || '')
   const [notFound, setNotFound] = useState(false)
@@ -47,6 +58,14 @@ function RequestStatus() {
     setTransferencia(null)
 
     try {
+      // Try proyecto
+      if (code.toUpperCase().startsWith('PRY-')) {
+        const response = await solicitudesApi.checkProyectoStatus(code)
+        setResult(response.data.proyecto)
+        setResultType('proyecto')
+        return
+      }
+
       // Try solicitud first
       if (code.toUpperCase().startsWith('SOL-')) {
         const response = await solicitudesApi.checkStatus(code)
@@ -65,17 +84,23 @@ function RequestStatus() {
         return
       }
 
-      // Unknown prefix, try both
+      // Unknown prefix, try all
       try {
         const response = await solicitudesApi.checkStatus(code)
         setResult({ ...response.data.solicitud, comentarios: response.data.comentarios })
         setTransferencia(response.data.transferencia)
         setResultType('solicitud')
       } catch {
-        const response = await ticketsApi.checkStatus(code)
-        setResult({ ...response.data.ticket, comentarios: response.data.comentarios })
-        setTransferencia(response.data.transferencia)
-        setResultType('ticket')
+        try {
+          const response = await ticketsApi.checkStatus(code)
+          setResult({ ...response.data.ticket, comentarios: response.data.comentarios })
+          setTransferencia(response.data.transferencia)
+          setResultType('ticket')
+        } catch {
+          const response = await solicitudesApi.checkProyectoStatus(code)
+          setResult(response.data.proyecto)
+          setResultType('proyecto')
+        }
       }
     } catch (error) {
       setNotFound(true)
@@ -86,8 +111,13 @@ function RequestStatus() {
 
   const handleSearch = () => {
     if (searchCode) {
-      navigate(`/consulta/${searchCode.toUpperCase()}`)
-      loadStatus(searchCode)
+      const code = searchCode.toUpperCase()
+      navigate(`/consulta/${code}`)
+      // Only call loadStatus directly if the URL didn't change (same code),
+      // otherwise useEffect will handle it via the new codigo param
+      if (code === codigo?.toUpperCase()) {
+        loadStatus(code)
+      }
     }
   }
 
@@ -101,8 +131,8 @@ function RequestStatus() {
   }
 
   // Render public comments/conversation
-  const renderComentarios = () => {
-    if (!result?.comentarios || result.comentarios.length === 0) return null
+  const renderComentarios = (comentarios) => {
+    if (!comentarios || comentarios.length === 0) return null
 
     return (
       <div style={{ marginTop: 24 }}>
@@ -111,19 +141,26 @@ function RequestStatus() {
           Comunicaciones
         </Divider>
         <Timeline>
-          {result.comentarios
+          {comentarios
             .slice()
             .sort((a, b) => new Date(a.fecha) - new Date(b.fecha))
             .map((c, index) => {
               const isUserResponse = c.es_respuesta
+              const isPending = ['comunicacion', 'agendar_reunion'].includes(c.tipo) && !isUserResponse
+              const hasResponse = isPending && comentarios.some(
+                (r, ri) => r.es_respuesta && ri > index
+              )
               return (
                 <Timeline.Item
                   key={index}
-                  color={isUserResponse ? 'green' : 'blue'}
+                  color={isUserResponse ? 'green' : c.tipo === 'agendar_reunion' ? 'purple' : 'blue'}
                   dot={isUserResponse ? <UserOutlined /> : <TeamOutlined />}
                 >
                   <div style={{ marginBottom: 4 }}>
                     <Text strong>{c.autor}</Text>
+                    {c.tipo === 'agendar_reunion' && !isUserResponse && (
+                      <Tag color="purple" style={{ marginLeft: 8, fontSize: 11 }}>Reunión</Tag>
+                    )}
                     <Text type="secondary" style={{ marginLeft: 8 }}>
                       {dayjs(c.fecha).format('DD/MM/YYYY HH:mm')}
                     </Text>
@@ -131,6 +168,17 @@ function RequestStatus() {
                   <Paragraph style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
                     {c.contenido}
                   </Paragraph>
+                  {c.adjuntos_count > 0 && (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      <PaperClipOutlined style={{ marginRight: 4 }} />
+                      {c.adjuntos_count} archivo{c.adjuntos_count > 1 ? 's' : ''} adjunto{c.adjuntos_count > 1 ? 's' : ''}
+                    </Text>
+                  )}
+                  {isPending && !hasResponse && (
+                    <Tag icon={<ClockCircleOutlined />} color="orange" style={{ marginTop: 4 }}>
+                      Pendiente de respuesta
+                    </Tag>
+                  )}
                 </Timeline.Item>
               )
             })}
@@ -234,8 +282,33 @@ function RequestStatus() {
           />
         )}
 
+        {/* Project link when solicitud has a project */}
+        {result.proyecto_codigo && (
+          <Alert
+            message={<><ProjectOutlined style={{ marginRight: 8 }} /> Proyecto en Desarrollo</>}
+            description={
+              <div>
+                <Paragraph style={{ marginBottom: 8 }}>
+                  Su solicitud se encuentra en desarrollo como proyecto <strong>{result.proyecto_codigo}</strong>.
+                </Paragraph>
+                <Button
+                  type="primary"
+                  icon={<ProjectOutlined />}
+                  onClick={() => { navigate(`/consulta/${result.proyecto_codigo}`); loadStatus(result.proyecto_codigo) }}
+                  style={{ backgroundColor: INEMEC_RED, borderColor: INEMEC_RED }}
+                >
+                  Ver progreso del proyecto
+                </Button>
+              </div>
+            }
+            type="success"
+            showIcon
+            style={{ marginBottom: 24 }}
+          />
+        )}
+
         {/* Scheduled dates */}
-        {result.fecha_inicio_programada && (
+        {result.fecha_inicio_programada && !result.proyecto_codigo && (
           <Alert
             message={<><CalendarOutlined style={{ marginRight: 8 }} /> Proyecto Programado</>}
             description={
@@ -267,7 +340,7 @@ function RequestStatus() {
           </Descriptions.Item>
         </Descriptions>
 
-        {renderComentarios()}
+        {renderComentarios(result.comentarios)}
       </Card>
     )
   }
@@ -343,7 +416,128 @@ function RequestStatus() {
           </Descriptions.Item>
         </Descriptions>
 
-        {renderComentarios()}
+        {renderComentarios(result.comentarios)}
+      </Card>
+    )
+  }
+
+  const renderProyectoStatus = () => {
+    const config = proyectoEstadoConfig[result.estado]
+
+    return (
+      <Card>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <Tag
+            color={config?.color}
+            icon={config?.icon}
+            style={{ fontSize: 16, padding: '8px 16px', marginBottom: 16 }}
+          >
+            {result.estado}
+          </Tag>
+          <Title level={3} style={{ margin: 0 }}>{result.titulo}</Title>
+          <Text type="secondary" style={{ fontSize: 16 }}>{result.codigo}</Text>
+          {result.solicitud_codigo && result.solicitud_codigo !== result.codigo && (
+            <div style={{ marginTop: 4 }}>
+              <Button type="link" style={{ fontSize: 12, padding: 0 }}
+                onClick={() => { navigate(`/consulta/${result.solicitud_codigo}`); loadStatus(result.solicitud_codigo) }}
+              >
+                Solicitud original: {result.solicitud_codigo}
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Pause Alert */}
+        {result.is_paused && (
+          <Alert
+            type="warning"
+            showIcon
+            icon={<PauseCircleOutlined />}
+            message="Proyecto Pausado Temporalmente"
+            description={
+              <div>
+                <div><strong>Motivo:</strong> {result.pause_reason}</div>
+                <div><strong>Desde:</strong> {dayjs(result.pause_since).format('DD/MM/YYYY')}</div>
+              </div>
+            }
+            style={{ marginBottom: 24 }}
+          />
+        )}
+
+        {/* Progress Circle + Estimated Finish */}
+        {['En Desarrollo', 'Pausado', 'Completado'].includes(result.estado) && (
+          <div style={{ textAlign: 'center', marginBottom: 24 }}>
+            <Progress
+              type="circle"
+              percent={result.progreso || 0}
+              strokeColor={INEMEC_RED}
+              size={140}
+              format={(p) => (
+                <div>
+                  <div style={{ fontSize: 28, fontWeight: 'bold' }}>{p}%</div>
+                  <div style={{ fontSize: 12, color: '#999' }}>Progreso</div>
+                </div>
+              )}
+            />
+            <div style={{ marginTop: 12 }}>
+              <Text type="secondary">
+                {result.tareas_completadas} de {result.total_tareas} tareas completadas
+              </Text>
+            </div>
+            {result.fecha_fin_estimada && (() => {
+              const estimada = dayjs(result.fecha_fin_estimada)
+              const programada = result.fecha_fin_programada ? dayjs(result.fecha_fin_programada) : null
+              let note = null
+              if (programada) {
+                if (estimada.isSame(programada, 'day')) {
+                  note = { text: 'Como planeado', color: '#52c41a' }
+                } else if (estimada.isAfter(programada, 'day')) {
+                  note = { text: 'Con retrasos comparado al plan', color: '#faad14' }
+                } else {
+                  note = { text: 'Adelantado comparado al plan', color: '#52c41a' }
+                }
+              }
+              return (
+                <div style={{ marginTop: 8 }}>
+                  <Text type="secondary">
+                    <CalendarOutlined style={{ marginRight: 4 }} />
+                    Fecha estimada de finalización:{' '}
+                  </Text>
+                  <Text strong>{estimada.format('DD/MM/YYYY')}</Text>
+                  {note && (
+                    <Text style={{ marginLeft: 8, color: note.color, fontSize: 13 }}>
+                      ({note.text})
+                    </Text>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
+        )}
+
+        {/* Dates */}
+        <Descriptions column={1} size="small" bordered>
+          {result.fecha_inicio_programada && (
+            <Descriptions.Item label={<><CalendarOutlined /> Fecha de Inicio Programada</>}>
+              {dayjs(result.fecha_inicio_programada).format('DD/MM/YYYY')}
+            </Descriptions.Item>
+          )}
+          {result.fecha_fin_programada && (
+            <Descriptions.Item label={<><CalendarOutlined /> Fecha de Fin Programada</>}>
+              {dayjs(result.fecha_fin_programada).format('DD/MM/YYYY')}
+            </Descriptions.Item>
+          )}
+        </Descriptions>
+
+        {/* Public Comments */}
+        {renderComentarios(result.comentarios)}
+
+        {/* Contact Info */}
+        <div style={{ marginTop: 24, textAlign: 'center' }}>
+          <Paragraph type="secondary">
+            Si tiene preguntas sobre el estado de su proyecto, contacte al departamento de Nuevas Tecnologías.
+          </Paragraph>
+        </div>
       </Card>
     )
   }
@@ -358,7 +552,7 @@ function RequestStatus() {
         <Form layout="inline" style={{ justifyContent: 'center' }}>
           <Form.Item>
             <Input
-              placeholder="Código (ej: SOL-2026-0001 o TKT-202602-0001)"
+              placeholder="Código (ej: SOL-2026-0001, TKT-..., PRY-...)"
               value={searchCode}
               onChange={(e) => setSearchCode(e.target.value.toUpperCase())}
               onPressEnter={handleSearch}
@@ -380,7 +574,7 @@ function RequestStatus() {
         </Form>
         <div style={{ textAlign: 'center', marginTop: 8 }}>
           <Text type="secondary">
-            Ingrese el código de su solicitud (SOL-...) o ticket (TKT-...)
+            Ingrese el código de su solicitud, ticket o proyecto
           </Text>
         </div>
       </Card>
@@ -393,18 +587,21 @@ function RequestStatus() {
 
       {!loading && result && resultType === 'solicitud' && renderSolicitudStatus()}
       {!loading && result && resultType === 'ticket' && renderTicketStatus()}
+      {!loading && result && resultType === 'proyecto' && renderProyectoStatus()}
 
       {!loading && notFound && (
-        <Card style={{ textAlign: 'center' }}>
-          <CloseCircleOutlined style={{ fontSize: 48, color: '#ff4d4f', marginBottom: 16 }} />
-          <Title level={4}>No encontrado</Title>
-          <Paragraph type="secondary">
-            No se encontró ninguna solicitud ni ticket con el código "{searchCode}"
-          </Paragraph>
-          <Paragraph type="secondary">
-            Verifique que el código sea correcto e intente nuevamente.
-          </Paragraph>
-        </Card>
+        <Result
+          status="404"
+          title="No encontrado"
+          subTitle={`No se encontró ninguna solicitud, ticket ni proyecto con el código "${searchCode}". Verifique que el código sea correcto e intente nuevamente.`}
+          extra={
+            <Link to="/nueva-solicitud">
+              <Button type="primary" style={{ backgroundColor: INEMEC_RED, borderColor: INEMEC_RED }}>
+                Crear Nueva Solicitud
+              </Button>
+            </Link>
+          }
+        />
       )}
     </div>
   )

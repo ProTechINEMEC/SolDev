@@ -13,7 +13,8 @@ const createUsuarioSchema = Joi.object({
   email: Joi.string().min(2).max(255).required(),
   nombre: Joi.string().min(2).max(100).required(),
   password: Joi.string().min(8).required(),
-  rol: Joi.string().valid('nuevas_tecnologias', 'ti', 'gerencia', 'coordinador_nt', 'coordinador_ti').required()
+  rol: Joi.string().valid('nuevas_tecnologias', 'ti', 'gerencia', 'coordinador_nt', 'coordinador_ti').required(),
+  contratos: Joi.array().items(Joi.string().max(200)).optional().default([])
 });
 
 const updateUsuarioSchema = Joi.object({
@@ -21,7 +22,8 @@ const updateUsuarioSchema = Joi.object({
   email: Joi.string().min(2).max(255).optional(),
   password: Joi.string().min(8).optional(),
   rol: Joi.string().valid('nuevas_tecnologias', 'ti', 'gerencia', 'coordinador_nt', 'coordinador_ti').optional(),
-  activo: Joi.boolean().optional()
+  activo: Joi.boolean().optional(),
+  contratos: Joi.array().items(Joi.string().max(200)).optional()
 });
 
 // GET /api/usuarios - List users
@@ -30,7 +32,7 @@ router.get('/', authenticate, authorize('admin'), async (req, res, next) => {
     const { rol, activo, search } = req.query;
 
     let query = `
-      SELECT id, email, nombre, rol, activo, es_prueba, creado_en, ultimo_acceso
+      SELECT id, email, nombre, rol, activo, es_prueba, creado_en, ultimo_acceso, contratos
       FROM usuarios WHERE es_prueba = false AND rol != 'admin'
     `;
     const params = [];
@@ -135,7 +137,7 @@ router.get('/:id', authenticate, async (req, res, next) => {
     }
 
     const result = await pool.query(
-      `SELECT id, email, nombre, rol, activo, es_prueba, creado_en, ultimo_acceso
+      `SELECT id, email, nombre, rol, activo, es_prueba, creado_en, ultimo_acceso, contratos
        FROM usuarios WHERE id = $1`,
       [id]
     );
@@ -172,10 +174,10 @@ router.post('/', authenticate, authorize('admin'), async (req, res, next) => {
     const passwordHash = await bcrypt.hash(value.password, 12);
 
     const result = await pool.query(
-      `INSERT INTO usuarios (email, nombre, password_hash, rol)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, email, nombre, rol, activo, creado_en`,
-      [value.email.toLowerCase(), value.nombre, passwordHash, value.rol]
+      `INSERT INTO usuarios (email, nombre, password_hash, rol, contratos)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, email, nombre, rol, activo, creado_en, contratos`,
+      [value.email.toLowerCase(), value.nombre, passwordHash, value.rol, JSON.stringify(value.contratos || [])]
     );
 
     logger.info(`New user created: ${value.email} with role ${value.rol}`);
@@ -251,6 +253,11 @@ router.put('/:id', authenticate, async (req, res, next) => {
       params.push(value.activo);
     }
 
+    if (value.contratos !== undefined && req.user.rol === 'admin') {
+      updates.push(`contratos = $${paramIndex++}`);
+      params.push(JSON.stringify(value.contratos));
+    }
+
     if (updates.length === 0) {
       throw new AppError('No hay campos para actualizar', 400);
     }
@@ -259,7 +266,7 @@ router.put('/:id', authenticate, async (req, res, next) => {
 
     const result = await pool.query(
       `UPDATE usuarios SET ${updates.join(', ')} WHERE id = $${paramIndex}
-       RETURNING id, email, nombre, rol, activo`,
+       RETURNING id, email, nombre, rol, activo, contratos`,
       params
     );
 
