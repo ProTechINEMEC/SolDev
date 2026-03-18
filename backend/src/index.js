@@ -39,6 +39,7 @@ const estimacionesRoutes = require('./routes/estimaciones');
 const calendarioRoutes = require('./routes/calendario');
 const archivosRoutes = require('./routes/archivos');
 const respuestasRoutes = require('./routes/respuestas');
+const borradoresRoutes = require('./routes/borradores');
 
 const app = express();
 
@@ -131,6 +132,7 @@ app.use('/api/estimaciones', estimacionesRoutes);
 app.use('/api/calendario', calendarioRoutes);
 app.use('/api/archivos', archivosRoutes);
 app.use('/api/respuestas', respuestasRoutes);
+app.use('/api/borradores', borradoresRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {

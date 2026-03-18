@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react'
-import { Form, Steps, Button, Space, message, Result, Typography, Card, Progress } from 'antd'
-import { ArrowLeftOutlined, ArrowRightOutlined, SendOutlined, CheckCircleOutlined } from '@ant-design/icons'
-import { solicitudesApi, archivosApi } from '../../../services/api'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { Form, Steps, Button, Space, message, Result, Typography, Card, Progress, Tooltip } from 'antd'
+import { ArrowLeftOutlined, ArrowRightOutlined, SendOutlined, CheckCircleOutlined, SaveOutlined, CloudOutlined } from '@ant-design/icons'
+import { solicitudesApi, archivosApi, borradoresApi } from '../../../services/api'
 import {
   IdentificacionSection,
   SponsorSection,
@@ -19,14 +19,85 @@ import {
 
 const { Title, Text, Paragraph } = Typography
 
-function ProyectoNuevoForm({ tipo = 'proyecto_nuevo_interno', sessionToken, onBack, onSuccess }) {
+function ProyectoNuevoForm({ tipo = 'proyecto_nuevo_interno', sessionToken, onBack, onSuccess, draftId: initialDraftId, draftData, draftStep }) {
   const [form] = Form.useForm()
-  const [currentStep, setCurrentStep] = useState(0)
+  const [currentStep, setCurrentStep] = useState(draftStep || 0)
   const [loading, setLoading] = useState(false)
   const [submittedCode, setSubmittedCode] = useState(null)
+  const [currentDraftId, setCurrentDraftId] = useState(initialDraftId || null)
+  const [lastSaved, setLastSaved] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const autoSaveTimer = useRef(null)
+  const isMounted = useRef(true)
+  const savingRef = useRef(false)
 
   const esDoliente = Form.useWatch(['identificacion', 'es_doliente'], form)
   const isActualizacion = tipo === 'actualizacion'
+
+  // Initialize form with draft data
+  useEffect(() => {
+    if (draftData && Object.keys(draftData).length > 0) {
+      form.setFieldsValue(draftData)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Save draft function
+  const saveDraft = useCallback(async (step) => {
+    if (!sessionToken || savingRef.current) return
+    try {
+      savingRef.current = true
+      setSaving(true)
+      const values = form.getFieldsValue(true)
+      const titulo = values.problematica?.titulo || null
+
+      if (currentDraftId) {
+        await borradoresApi.update(currentDraftId, {
+          datos_formulario: values,
+          paso_actual: step ?? currentStep,
+          titulo_borrador: titulo
+        }, sessionToken)
+      } else {
+        const response = await borradoresApi.create({
+          tipo,
+          datos_formulario: values,
+          paso_actual: step ?? currentStep,
+          titulo_borrador: titulo
+        }, sessionToken)
+        if (isMounted.current) {
+          setCurrentDraftId(response.data.borrador.id)
+        }
+      }
+      if (isMounted.current) {
+        setLastSaved(new Date())
+      }
+    } catch (error) {
+      // Silent fail for auto-save, only log
+      if (error?.response?.status === 401) {
+        message.warning('Su sesión ha expirado. Los datos del formulario se mantienen en memoria.')
+      }
+      console.error('Draft save error:', error)
+    } finally {
+      savingRef.current = false
+      if (isMounted.current) {
+        setSaving(false)
+      }
+    }
+  }, [sessionToken, currentDraftId, currentStep, tipo, form])
+
+  // Auto-save every 45 seconds
+  useEffect(() => {
+    isMounted.current = true
+    autoSaveTimer.current = setInterval(() => {
+      saveDraft()
+    }, 45000)
+
+    return () => {
+      isMounted.current = false
+      if (autoSaveTimer.current) {
+        clearInterval(autoSaveTimer.current)
+      }
+    }
+  }, [saveDraft])
 
   // Build dynamic steps based on whether sponsor section is needed and form type
   const steps = useMemo(() => {
@@ -188,14 +259,25 @@ function ProyectoNuevoForm({ tipo = 'proyecto_nuevo_interno', sessionToken, onBa
   const handleNext = async () => {
     const valid = await validateCurrentStep()
     if (valid) {
-      setCurrentStep(currentStep + 1)
+      const nextStep = currentStep + 1
+      setCurrentStep(nextStep)
+      saveDraft(nextStep)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     }
   }
 
   const handlePrev = () => {
-    setCurrentStep(currentStep - 1)
+    const prevStep = currentStep - 1
+    setCurrentStep(prevStep)
+    saveDraft(prevStep)
     window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleManualSave = async () => {
+    await saveDraft()
+    if (lastSaved) {
+      message.success('Borrador guardado')
+    }
   }
 
   const handleSubmit = async () => {
@@ -286,6 +368,17 @@ function ProyectoNuevoForm({ tipo = 'proyecto_nuevo_interno', sessionToken, onBa
 
       if (totalFilesUploaded > 0) {
         message.success(`${totalFilesUploaded} archivo(s) subido(s)`)
+      }
+
+      // Delete draft after successful submission (fire-and-forget)
+      if (currentDraftId) {
+        borradoresApi.delete(currentDraftId, sessionToken).catch(() => {})
+        setCurrentDraftId(null)
+      }
+
+      // Clear auto-save timer
+      if (autoSaveTimer.current) {
+        clearInterval(autoSaveTimer.current)
       }
 
       setSubmittedCode(response.data.solicitud.codigo)
@@ -379,38 +472,59 @@ function ProyectoNuevoForm({ tipo = 'proyecto_nuevo_interno', sessionToken, onBa
           </div>
         ))}
 
-        <div style={{ marginTop: 24, display: 'flex', justifyContent: 'space-between' }}>
-          <Space>
-            {onBack && currentStep === 0 && (
-              <Button onClick={onBack} icon={<ArrowLeftOutlined />}>
-                Volver
-              </Button>
-            )}
-          </Space>
+        <div style={{ marginTop: 24 }}>
+          {/* Last saved indicator */}
+          {lastSaved && (
+            <div style={{ textAlign: 'center', marginBottom: 12 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                <CloudOutlined style={{ marginRight: 4 }} />
+                Último guardado: {lastSaved.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </Text>
+            </div>
+          )}
 
-          <Space>
-            {currentStep > 0 && (
-              <Button onClick={handlePrev} icon={<ArrowLeftOutlined />}>
-                Anterior
-              </Button>
-            )}
-            {currentStep < steps.length - 1 && (
-              <Button type="primary" onClick={handleNext}>
-                Siguiente <ArrowRightOutlined />
-              </Button>
-            )}
-            {currentStep === steps.length - 1 && (
-              <Button
-                type="primary"
-                onClick={handleSubmit}
-                loading={loading}
-                icon={<SendOutlined />}
-                style={{ background: '#D52B1E', borderColor: '#D52B1E' }}
-              >
-                Enviar Solicitud
-              </Button>
-            )}
-          </Space>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <Space>
+              {onBack && currentStep === 0 && (
+                <Button onClick={onBack} icon={<ArrowLeftOutlined />}>
+                  Volver
+                </Button>
+              )}
+            </Space>
+
+            <Space>
+              <Tooltip title="Guardar progreso como borrador">
+                <Button
+                  onClick={handleManualSave}
+                  loading={saving}
+                  icon={<SaveOutlined />}
+                >
+                  Guardar Borrador
+                </Button>
+              </Tooltip>
+              {currentStep > 0 && (
+                <Button onClick={handlePrev} icon={<ArrowLeftOutlined />}>
+                  Anterior
+                </Button>
+              )}
+              {currentStep < steps.length - 1 && (
+                <Button type="primary" onClick={handleNext}>
+                  Siguiente <ArrowRightOutlined />
+                </Button>
+              )}
+              {currentStep === steps.length - 1 && (
+                <Button
+                  type="primary"
+                  onClick={handleSubmit}
+                  loading={loading}
+                  icon={<SendOutlined />}
+                  style={{ background: '#D52B1E', borderColor: '#D52B1E' }}
+                >
+                  Enviar Solicitud
+                </Button>
+              )}
+            </Space>
+          </div>
         </div>
       </Form>
     </div>

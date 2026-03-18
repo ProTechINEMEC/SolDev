@@ -360,3 +360,21 @@ export const archivosApi = {
   // Get allowed types
   getAllowedTypes: () => api.get('/archivos/config/allowed-types')
 }
+
+export const borradoresApi = {
+  list: (sessionToken) => api.get('/borradores', {
+    headers: { 'X-Session-Token': sessionToken }
+  }),
+  get: (id, sessionToken) => api.get(`/borradores/${id}`, {
+    headers: { 'X-Session-Token': sessionToken }
+  }),
+  create: (data, sessionToken) => api.post('/borradores', data, {
+    headers: { 'X-Session-Token': sessionToken }
+  }),
+  update: (id, data, sessionToken) => api.put(`/borradores/${id}`, data, {
+    headers: { 'X-Session-Token': sessionToken }
+  }),
+  delete: (id, sessionToken) => api.delete(`/borradores/${id}`, {
+    headers: { 'X-Session-Token': sessionToken }
+  })
+}

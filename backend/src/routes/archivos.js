@@ -13,7 +13,7 @@ router.post('/upload', optionalAuth, uploadMultiple, async (req, res, next) => {
     const { entidad_tipo, entidad_id, session_token, origen = 'creacion', comentario_id } = req.body;
 
     // Validate entity type
-    const validEntityTypes = ['solicitud', 'ticket', 'proyecto', 'articulo'];
+    const validEntityTypes = ['solicitud', 'ticket', 'proyecto', 'articulo', 'borrador'];
     if (!validEntityTypes.includes(entidad_tipo)) {
       throw new AppError(`Tipo de entidad inválido: ${entidad_tipo}`, 400);
     }
@@ -109,7 +109,7 @@ router.post('/upload-single', optionalAuth, uploadSingle, async (req, res, next)
     const { entidad_tipo, entidad_id, session_token } = req.body;
 
     // Validate entity type
-    const validEntityTypes = ['solicitud', 'ticket', 'proyecto', 'articulo'];
+    const validEntityTypes = ['solicitud', 'ticket', 'proyecto', 'articulo', 'borrador'];
     if (!validEntityTypes.includes(entidad_tipo)) {
       throw new AppError(`Tipo de entidad inválido: ${entidad_tipo}`, 400);
     }
@@ -176,7 +176,7 @@ router.get('/entity/:tipo/:id', optionalAuth, async (req, res, next) => {
     const { tipo, id } = req.params;
     const { grouped } = req.query;
 
-    const validEntityTypes = ['solicitud', 'ticket', 'proyecto', 'articulo'];
+    const validEntityTypes = ['solicitud', 'ticket', 'proyecto', 'articulo', 'borrador'];
     if (!validEntityTypes.includes(tipo)) {
       throw new AppError(`Tipo de entidad inválido: ${tipo}`, 400);
     }

@@ -189,7 +189,33 @@ const scheduler = {
         "DELETE FROM sesiones WHERE expira_en < NOW() - INTERVAL '7 days' RETURNING id"
       );
 
-      logger.info(`Token cleanup: ${resetResult.rowCount} reset tokens, ${verifyResult.rowCount} verification codes, ${sessionResult.rowCount + expiredSessionResult.rowCount} sessions deleted`);
+      // Clean expired drafts and their associated files
+      const expiredDrafts = await pool.query(
+        `SELECT id FROM borradores_solicitud WHERE expira_en < NOW()`
+      );
+      if (expiredDrafts.rows.length > 0) {
+        const draftIds = expiredDrafts.rows.map(d => d.id);
+        // Delete associated files from disk
+        const orphanFiles = await pool.query(
+          `SELECT ruta FROM archivos WHERE entidad_tipo = 'borrador' AND entidad_id = ANY($1)`,
+          [draftIds]
+        );
+        const fs = require('fs');
+        const path = require('path');
+        for (const f of orphanFiles.rows) {
+          try {
+            const filePath = path.resolve(f.ruta);
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+          } catch (e) { /* ignore */ }
+        }
+        await pool.query(
+          `DELETE FROM archivos WHERE entidad_tipo = 'borrador' AND entidad_id = ANY($1)`,
+          [draftIds]
+        );
+        await pool.query(`DELETE FROM borradores_solicitud WHERE expira_en < NOW()`);
+      }
+
+      logger.info(`Token cleanup: ${resetResult.rowCount} reset tokens, ${verifyResult.rowCount} verification codes, ${sessionResult.rowCount + expiredSessionResult.rowCount} sessions, ${expiredDrafts.rows.length} expired drafts deleted`);
     } catch (error) {
       logger.error('Failed to cleanup tokens:', error);
     }

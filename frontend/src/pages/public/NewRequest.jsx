@@ -1,13 +1,16 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Card, Form, Input, Button, Space, Typography, message, Divider, Row, Col
+  Card, Form, Input, Button, Space, Typography, message, Divider, Row, Col,
+  Popconfirm, Tag, Empty, Spin
 } from 'antd'
 import {
   MailOutlined, ArrowLeftOutlined, ToolOutlined, RocketOutlined,
-  BugOutlined, CloseCircleOutlined, SyncOutlined, PlusCircleOutlined
+  BugOutlined, CloseCircleOutlined, SyncOutlined, PlusCircleOutlined,
+  FileTextOutlined, DeleteOutlined, EditOutlined
 } from '@ant-design/icons'
-import { verificacionApi } from '../../services/api'
+import { verificacionApi, borradoresApi } from '../../services/api'
+import dayjs from 'dayjs'
 import {
   ITTicketForm,
   ReporteFalloForm,
@@ -63,8 +66,13 @@ const ntTypes = [
   }
 ]
 
+const tipoLabels = {
+  proyecto_nuevo_interno: 'Proyecto Nuevo',
+  actualizacion: 'Actualización'
+}
+
 function NewRequest() {
-  const [step, setStep] = useState('verification') // verification, category, type, form
+  const [step, setStep] = useState('verification') // verification, drafts, category, type, form
   const [verificationForm] = Form.useForm()
   const [loading, setLoading] = useState(false)
   const [sessionToken, setSessionToken] = useState(null)
@@ -72,7 +80,65 @@ function NewRequest() {
   const [selectedCategory, setSelectedCategory] = useState(null)
   const [selectedType, setSelectedType] = useState(null)
   const [solicitanteData, setSolicitanteData] = useState(null)
+  const [drafts, setDrafts] = useState([])
+  const [loadingDrafts, setLoadingDrafts] = useState(false)
+  const [draftId, setDraftId] = useState(null)
+  const [draftData, setDraftData] = useState(null)
+  const [draftStep, setDraftStep] = useState(null)
   const navigate = useNavigate()
+
+  // Check for existing drafts after verification
+  const checkDrafts = async (token) => {
+    setLoadingDrafts(true)
+    try {
+      const response = await borradoresApi.list(token)
+      const borradores = response.data.borradores || []
+      if (borradores.length > 0) {
+        setDrafts(borradores)
+        setStep('drafts')
+      } else {
+        setStep('category')
+      }
+    } catch {
+      setStep('category')
+    } finally {
+      setLoadingDrafts(false)
+    }
+  }
+
+  // Resume a draft
+  const handleResumeDraft = async (draft) => {
+    setLoading(true)
+    try {
+      const response = await borradoresApi.get(draft.id, sessionToken)
+      const borrador = response.data.borrador
+      setDraftId(borrador.id)
+      setDraftData(borrador.datos_formulario)
+      setDraftStep(borrador.paso_actual)
+      setSelectedCategory('nt')
+      setSelectedType(borrador.tipo)
+      setStep('form')
+    } catch {
+      message.error('Error al cargar el borrador')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Delete a draft
+  const handleDeleteDraft = async (draftId) => {
+    try {
+      await borradoresApi.delete(draftId, sessionToken)
+      const updated = drafts.filter(d => d.id !== draftId)
+      setDrafts(updated)
+      message.success('Borrador eliminado')
+      if (updated.length === 0) {
+        setStep('category')
+      }
+    } catch {
+      message.error('Error al eliminar el borrador')
+    }
+  }
 
   // Request verification code
   const handleRequestCode = async (values) => {
@@ -83,15 +149,16 @@ function NewRequest() {
         nombre: values.nombre
       })
 
-      // If auto-verified (email verification disabled), skip to category selection
+      // If auto-verified (email verification disabled), check for drafts
       if (response.data.autoVerified) {
-        setSessionToken(response.data.sessionToken)
+        const token = response.data.sessionToken
+        setSessionToken(token)
         setSolicitanteData({
           nombre: response.data.solicitante.nombre,
           email: response.data.solicitante.email
         })
-        setStep('category')
         message.success('Verificación completada')
+        await checkDrafts(token)
       } else {
         setVerificationSent(true)
         message.success('Código de verificación enviado a su email')
@@ -111,13 +178,14 @@ function NewRequest() {
         email: verificationForm.getFieldValue('email'),
         codigo: values.codigo
       })
-      setSessionToken(response.data.sessionToken)
+      const token = response.data.sessionToken
+      setSessionToken(token)
       setSolicitanteData({
         nombre: response.data.solicitante.nombre,
         email: response.data.solicitante.email
       })
-      setStep('category')
       message.success('Email verificado correctamente')
+      await checkDrafts(token)
     } catch (error) {
       message.error(error.message || 'Código inválido')
     } finally {
@@ -147,6 +215,10 @@ function NewRequest() {
   // Handle back navigation
   const handleBack = () => {
     if (step === 'form') {
+      // Clear draft state when going back
+      setDraftId(null)
+      setDraftData(null)
+      setDraftStep(null)
       if (selectedCategory === 'it') {
         setStep('category')
       } else {
@@ -157,8 +229,11 @@ function NewRequest() {
       setStep('category')
       setSelectedCategory(null)
     } else if (step === 'category') {
-      // Go back to verification would lose the session, show category selector again
-      setStep('category')
+      if (drafts.length > 0) {
+        setStep('drafts')
+      }
+    } else if (step === 'drafts') {
+      // Stay on drafts - going back to verification would lose session
     }
   }
 
@@ -354,6 +429,79 @@ function NewRequest() {
     </div>
   )
 
+  // Render drafts selection step
+  const renderDraftSelection = () => (
+    <div style={{ maxWidth: 800, margin: '0 auto' }}>
+      <div style={{ textAlign: 'center', marginBottom: 32 }}>
+        <FileTextOutlined style={{ fontSize: 48, color: '#D52B1E', marginBottom: 16 }} />
+        <Title level={2}>Borradores Guardados</Title>
+        <Paragraph type="secondary">
+          Tiene {drafts.length} borrador{drafts.length > 1 ? 'es' : ''} guardado{drafts.length > 1 ? 's' : ''}. Puede continuar donde lo dejó o crear una nueva solicitud.
+        </Paragraph>
+      </div>
+
+      <Space direction="vertical" style={{ width: '100%' }} size="middle">
+        {drafts.map(draft => (
+          <Card key={draft.id} size="small">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ flex: 1 }}>
+                <Space direction="vertical" size={4}>
+                  <Space>
+                    <Tag color={draft.tipo === 'proyecto_nuevo_interno' ? 'blue' : 'orange'}>
+                      {tipoLabels[draft.tipo] || draft.tipo}
+                    </Tag>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      Paso {(draft.paso_actual || 0) + 1}
+                    </Text>
+                  </Space>
+                  <Text strong>
+                    {draft.titulo_borrador || 'Sin título'}
+                  </Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Último guardado: {dayjs(draft.actualizado_en).format('DD/MM/YYYY HH:mm')}
+                  </Text>
+                </Space>
+              </div>
+              <Space>
+                <Button
+                  type="primary"
+                  icon={<EditOutlined />}
+                  onClick={() => handleResumeDraft(draft)}
+                  loading={loading}
+                >
+                  Continuar
+                </Button>
+                <Popconfirm
+                  title="¿Eliminar este borrador?"
+                  description="Esta acción no se puede deshacer"
+                  onConfirm={() => handleDeleteDraft(draft.id)}
+                  okText="Eliminar"
+                  cancelText="Cancelar"
+                  okButtonProps={{ danger: true }}
+                >
+                  <Button danger icon={<DeleteOutlined />} />
+                </Popconfirm>
+              </Space>
+            </div>
+          </Card>
+        ))}
+      </Space>
+
+      <Divider />
+
+      <div style={{ textAlign: 'center' }}>
+        <Button
+          type="primary"
+          size="large"
+          icon={<PlusCircleOutlined />}
+          onClick={handleNewRequest}
+        >
+          Crear Nueva Solicitud
+        </Button>
+      </div>
+    </div>
+  )
+
   // Render form based on selection
   const renderForm = () => {
     const commonProps = {
@@ -389,7 +537,13 @@ function NewRequest() {
       case 'actualizacion':
         return (
           <div style={{ maxWidth: 900, margin: '0 auto' }}>
-            <ProyectoNuevoForm tipo={selectedType} {...commonProps} />
+            <ProyectoNuevoForm
+              tipo={selectedType}
+              draftId={draftId}
+              draftData={draftData}
+              draftStep={draftStep}
+              {...commonProps}
+            />
           </div>
         )
       default:
@@ -411,6 +565,7 @@ function NewRequest() {
       </div>
 
       {step === 'verification' && renderVerification()}
+      {step === 'drafts' && renderDraftSelection()}
       {step === 'category' && renderCategorySelection()}
       {step === 'type' && renderTypeSelection()}
       {step === 'form' && renderForm()}
