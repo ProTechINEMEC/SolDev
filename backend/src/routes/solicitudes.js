@@ -45,15 +45,15 @@ const sponsorSchema = Joi.object({
 // Section 3: Stakeholders
 const stakeholdersSchema = Joi.object({
   internas: Joi.object({
-    areas: Joi.array().items(Joi.string()).optional(),
-    personas: Joi.array().items(Joi.string()).optional()
+    areas: Joi.array().items(Joi.string().allow('', null)).optional(),
+    personas: Joi.array().items(Joi.string().allow('', null)).optional()
   }).optional(),
   aplica_externas: Joi.boolean().optional(),
   externas: Joi.object({
-    sectores: Joi.array().items(Joi.string()).optional(),
-    empresas: Joi.array().items(Joi.string()).optional(),
-    proveedores: Joi.array().items(Joi.string()).optional(),
-    personas: Joi.array().items(Joi.string()).optional()
+    sectores: Joi.array().items(Joi.string().allow('', null)).optional(),
+    empresas: Joi.array().items(Joi.string().allow('', null)).optional(),
+    proveedores: Joi.array().items(Joi.string().allow('', null)).optional(),
+    personas: Joi.array().items(Joi.string().allow('', null)).optional()
   }).optional()
 });
 

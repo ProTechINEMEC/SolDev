@@ -556,9 +556,9 @@ router.post('/:id/enviar', authenticate, authorize('nuevas_tecnologias'), async 
         [id]
       );
 
-      // Update solicitud state
+      // Update solicitud state — goes to coordinator NT review first
       await client.query(
-        `UPDATE solicitudes SET estado = 'pendiente_aprobacion_gerencia', actualizado_en = NOW()
+        `UPDATE solicitudes SET estado = 'pendiente_revision_coordinador_nt', actualizado_en = NOW()
          WHERE id = $1`,
         [evaluacion.solicitud_id]
       );
@@ -566,7 +566,7 @@ router.post('/:id/enviar', authenticate, authorize('nuevas_tecnologias'), async 
       // Log change
       await client.query(
         `INSERT INTO historial_cambios (entidad_tipo, entidad_id, accion, datos_nuevos, usuario_id)
-         VALUES ('solicitud', $1, 'enviar_a_gerencia', $2, $3)`,
+         VALUES ('solicitud', $1, 'enviar_a_coordinador_nt', $2, $3)`,
         [
           evaluacion.solicitud_id,
           JSON.stringify({ evaluacion_id: id }),
@@ -574,14 +574,14 @@ router.post('/:id/enviar', authenticate, authorize('nuevas_tecnologias'), async 
         ]
       );
 
-      // Notify gerencia
+      // Notify coordinador_nt
       await client.query(
         `INSERT INTO notificaciones (usuario_id, tipo, titulo, mensaje, datos)
-         SELECT id, 'aprobacion_pendiente', 'Solicitud pendiente de aprobación',
+         SELECT id, 'revision_pendiente', 'Solicitud pendiente de revisión',
            $1, $2
-         FROM usuarios WHERE rol = 'gerencia' AND activo = true`,
+         FROM usuarios WHERE rol = 'coordinador_nt' AND activo = true`,
         [
-          `La solicitud ${evaluacion.solicitud_codigo} está lista para su aprobación`,
+          `La solicitud ${evaluacion.solicitud_codigo} está lista para su revisión`,
           JSON.stringify({
             solicitud_id: evaluacion.solicitud_id,
             evaluacion_id: id,
@@ -591,10 +591,10 @@ router.post('/:id/enviar', authenticate, authorize('nuevas_tecnologias'), async 
       );
     });
 
-    logger.info(`Evaluation ${id} sent to gerencia for solicitud ${evaluacion.solicitud_codigo}`);
+    logger.info(`Evaluation ${id} sent to coordinador_nt for solicitud ${evaluacion.solicitud_codigo}`);
 
     res.json({
-      message: 'Evaluación enviada a Gerencia',
+      message: 'Evaluación enviada a Coordinador NT para revisión',
       evaluacion: { id, estado: 'enviado' }
     });
   } catch (error) {

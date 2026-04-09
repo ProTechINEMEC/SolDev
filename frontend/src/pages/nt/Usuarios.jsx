@@ -111,7 +111,6 @@ function NTUsuarios() {
   const handleCreate = () => {
     setEditingUser(null)
     form.resetFields()
-    form.setFieldsValue({ activo: true })
     setModalVisible(true)
   }
 
@@ -149,7 +148,15 @@ function NTUsuarios() {
           message.error('La contraseña es requerida para nuevos usuarios')
           return
         }
-        await usuariosApi.create(values)
+        // Only send fields the create endpoint accepts
+        const createData = {
+          nombre: values.nombre,
+          email: values.email,
+          password: values.password,
+          rol: values.rol,
+          contratos: values.contratos || []
+        }
+        await usuariosApi.create(createData)
         message.success('Usuario creado')
       }
       setModalVisible(false)
@@ -430,24 +437,29 @@ function NTUsuarios() {
           </Form.Item>
 
           {(formRole === 'ti' || formRole === 'coordinador_ti') && contractOptions.length > 0 && (
-            <Form.Item name="contratos" label="Contratos Asignados">
-              <div>
-                <Button
-                  size="small"
-                  style={{ marginBottom: 8 }}
-                  onClick={() => form.setFieldsValue({ contratos: contractOptions.map(o => o.value) })}
-                >
-                  Seleccionar Todos
-                </Button>
-                <Button
-                  size="small"
-                  style={{ marginBottom: 8, marginLeft: 8 }}
-                  onClick={() => form.setFieldsValue({ contratos: [] })}
-                >
-                  Limpiar
-                </Button>
-                <Checkbox.Group options={contractOptions} style={{ display: 'flex', flexDirection: 'column', gap: 4 }} />
-              </div>
+            <Form.Item
+              name="contratos"
+              label={
+                <Space>
+                  <span>Contratos Asignados</span>
+                  <Button
+                    size="small"
+                    type="link"
+                    onClick={() => form.setFieldsValue({ contratos: contractOptions.map(o => o.value) })}
+                  >
+                    Todos
+                  </Button>
+                  <Button
+                    size="small"
+                    type="link"
+                    onClick={() => form.setFieldsValue({ contratos: [] })}
+                  >
+                    Limpiar
+                  </Button>
+                </Space>
+              }
+            >
+              <Checkbox.Group options={contractOptions} style={{ display: 'flex', flexDirection: 'column', gap: 4 }} />
             </Form.Item>
           )}
 
